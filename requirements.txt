@@ -1,0 +1,17 @@
+websockets
+tornado
+psutil
+pynput
+
+# optional
+# winrt-runtime
+# winrt-Windows.Media.Control
+# GPUtil
+# pypresence
+# onnxruntime
+# tokenizers
+# librosa
+# sounddevice
+# scipy
+# numpy
+# keyboard
