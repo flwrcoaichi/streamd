@@ -7,6 +7,7 @@ import time
 from config import log, COMMANDS_PATH, CHAN
 from state import state
 from broadcast import broadcast_sync, send_chat
+from conditions import check_conditions
 
 _DEFAULT_COMMANDS = {
     "!throw": {
@@ -38,6 +39,11 @@ _DEFAULT_COMMANDS = {
         "type": "builtin",
         "enabled": True,
         "description": "switch the status corner's default panel (socials/status)",
+    },
+    "!flags": {
+        "type": "builtin",
+        "enabled": True,
+        "description": "show how many flags you have",
     },
 }
 
@@ -202,6 +208,9 @@ def dispatch_chat_command(user: str, text: str, badges: list | None = None) -> N
     if not _has_permission(cmd, user, badges or []):
         return
 
+    if not check_conditions(cmd, user, badges or []):
+        return
+
     if not _check_cooldown(trigger, cmd.get("cooldown", 0)):
         return
 
@@ -226,6 +235,10 @@ def dispatch_chat_command(user: str, text: str, badges: list | None = None) -> N
             else:
                 panel = "socials"
             broadcast_sync({"type": "panel", "panel": panel})
+        elif trigger == "!flags":
+            from flags import get_flags
+            count = get_flags(user)
+            send_chat(f"{user} has {count} flag(s)!")
     elif ctype == "custom":
         response = cmd.get("response", "")
         if response:

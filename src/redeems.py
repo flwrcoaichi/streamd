@@ -6,6 +6,7 @@ import time
 from config import log, REWARDS_PATH, CHECKINS_PATH, REDEEMS_DIR, MEDIA_DIR
 from state import state
 from broadcast import broadcast_sync, send_chat
+from conditions import check_conditions
 
 _DEFAULT_REWARDS = {
     "first in chat": {
@@ -39,13 +40,28 @@ _DEFAULT_REWARDS = {
         "message": "{user} pushed the next ad back a few minutes!",
         "description": "delays the next automatic mid-roll ad by ~5 minutes",
     },
+    "flag gamble": {
+        "enabled": True,
+        "action": "flag_gamble",
+        "message": "",
+        "description": "50/50 chance to gain or lose a flag",
+    },
+    "flag jackpot": {
+        "enabled": True,
+        "action": "flag_jackpot",
+        "message": "",
+        "description": "1% +3 flags, 1% -half flags, 20% -1 flag, 70% nothing",
+    },
 }
 
 
 def load_rewards() -> dict:
     if REWARDS_PATH.exists():
         try:
-            return json.loads(REWARDS_PATH.read_text(encoding="utf-8"))
+            rewards = json.loads(REWARDS_PATH.read_text(encoding="utf-8"))
+            for title, cfg in _DEFAULT_REWARDS.items():
+                rewards.setdefault(title, cfg)
+            return rewards
         except Exception:
             pass
     return dict(_DEFAULT_REWARDS)
@@ -111,12 +127,15 @@ def _write_redeem_file(user: str, user_input: str) -> None:
         log.warning("[redeem] failed to write note file: %s", e)
 
 
-def handle_redemption(reward_title: str, user: str, user_input: str = "") -> None:
+def handle_redemption(reward_title: str, user: str, user_input: str = "", badges: list | None = None) -> None:
     """dispatch a channel point redemption by matching its reward title
-    (case-insensitive) against the configured rewards table."""
+    (case-insensitive) against the configured rewards table. `badges` is
+    only populated when this is triggered from a test/chat context — real
+    twitch redemption events don't carry badge info."""
     # local imports to avoid circular imports at module load time
     from tts import tts_say
     from twitch_api import resolve_twitch_user_id, snooze_next_ad, apply_first_chatter_title_suffix
+    from flags import add_flags, roll_flag_gamble, roll_flag_jackpot
 
     rewards = state.data.get("rewards", {})
     key = None
@@ -130,6 +149,10 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "") -> Non
 
     cfg = rewards[key]
     if not cfg.get("enabled", True):
+        return
+
+    if not check_conditions(cfg, user, badges):
+        log.info("[redeem] %r blocked by conditions for %s", key, user)
         return
 
     action = cfg.get("action", "message")
@@ -157,6 +180,21 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "") -> Non
             return
         state.data["ads"]["next_ad_at"] = result.get("next_ad_at", "")
         broadcast_sync({"type": "ads_state", "ads": state.data["ads"]})
+    elif action == "flag_gamble":
+        delta = roll_flag_gamble(user)
+        template = template or (
+            f"{{user}} gained a flag! 🚩" if delta > 0 else
+            f"{{user}} lost a flag..." if delta < 0 else
+            f"{{user}} broke even."
+        )
+    elif action == "flag_jackpot":
+        delta = roll_flag_jackpot(user)
+        if delta > 0:
+            template = template or "{user} hit the jackpot! +3 flags!! 🚩🚩🚩"
+        elif delta < 0:
+            template = template or "{user} took a hit and lost flags."
+        else:
+            template = template or ""
     elif action == "play_media":
         filename = cfg.get("file", "")
         audio_file = cfg.get("audio", "")

@@ -73,6 +73,7 @@ class StreamState:
             "rewards": {},
             "redeem_log": [],
             "checkins": {},
+            "flags": {},
             "ads": {
                 "enabled": AD_REMINDER_ENABLED,
                 "next_ad_at": "",

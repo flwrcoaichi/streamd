@@ -9,6 +9,7 @@ from config import log, WS_PORT, BASE_DIR, LOG_PATH, PNGTUBER_DIR
 from state import state
 from commands import load_commands
 from redeems import load_rewards, load_checkins
+from flags import load_flags
 from obs import obs_client_task
 from twitch_api import run_twitch_stats_thread, run_ad_schedule_thread, twitch_eventsub_loop
 from twitch_auth import get_twitch_user_token, run_twitch_auth_flow
@@ -21,6 +22,7 @@ from ws_handler import ws_handler
 state.data["commands"] = load_commands()
 state.data["rewards"] = load_rewards()
 state.data["checkins"] = load_checkins()
+state.data["flags"] = load_flags()
 
 
 def run_twitch_token_refresh_thread() -> None:
