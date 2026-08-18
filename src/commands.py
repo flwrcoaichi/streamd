@@ -3,6 +3,7 @@ import random
 import re
 import threading
 import time
+import xml.etree.ElementTree as ET
 
 from config import log, COMMANDS_PATH, CHAN
 from state import state
@@ -135,48 +136,248 @@ def _render_response(trigger: str, response: str, user: str, arg: str) -> str:
 
 # ── lyrics ───────────────────────────────────────────────────────────────
 
-def _fetch_lyrics(artist: str, title: str) -> str | None:
-    """lyrics.ovh — free, no api key required. best-effort: returns None on
-    any failure (song not found, network issue, etc) rather than raising."""
+_LRC_LINE_RE = re.compile(r"^\[(\d+):(\d+(?:\.\d+)?)\](.*)")
+
+
+def _parse_lrc(lrc_text: str) -> list[dict]:
+    """parse standard LRC format → [{time: float_seconds, text: str}]
+    sorted by time. empty/instrumental lines are included as empty text
+    so the overlay can show a gap."""
+    lines = []
+    for raw in lrc_text.splitlines():
+        m = _LRC_LINE_RE.match(raw.strip())
+        if not m:
+            continue
+        minutes = int(m.group(1))
+        seconds = float(m.group(2))
+        text = m.group(3).strip()
+        lines.append({"time": minutes * 60 + seconds, "text": text})
+    lines.sort(key=lambda l: l["time"])
+    return lines
+
+
+def _parse_ttml_words(ttml_text: str) -> list[dict]:
+    """parse a TTML document → [{time: float, end: float, word: str}]
+    Each <span begin="..." end="...">word</span> within a <p> becomes
+    one entry.  Falls back to line-level <p> elements if no span children
+    have their own begin/end attributes (some providers use line-level TTML).
+    """
+    words = []
+    try:
+        # strip namespace prefixes so ElementTree doesn't choke
+        clean = re.sub(r' xmlns[^"]*"[^"]*"', "", ttml_text)
+        clean = re.sub(r"<(/?)tt:", r"<\1", clean)
+        clean = re.sub(r"<(/?)tts:", r"<\1", clean)
+        root = ET.fromstring(clean)
+    except ET.ParseError as e:
+        log.debug("[lyrics] ttml parse error: %s", e)
+        return words
+
+    def _t(attr: str) -> float | None:
+        """convert HH:MM:SS.mmm or MM:SS.mmm or plain seconds to float."""
+        if not attr:
+            return None
+        parts = attr.rstrip("s").split(":")
+        try:
+            if len(parts) == 3:
+                return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            if len(parts) == 2:
+                return int(parts[0]) * 60 + float(parts[1])
+            return float(parts[0])
+        except (ValueError, IndexError):
+            return None
+
+    # walk all <p> and <span> elements
+    for p in root.iter("p"):
+        p_begin = _t(p.get("begin"))
+        p_end   = _t(p.get("end"))
+        spans = list(p)
+        word_spans = [s for s in spans if s.get("begin") or s.get("end")]
+        if word_spans:
+            for span in word_spans:
+                t = _t(span.get("begin")) or p_begin
+                e = _t(span.get("end"))   or p_end
+                w = (span.text or "").strip()
+                if w and t is not None:
+                    words.append({"time": t, "end": e, "word": w})
+        elif p_begin is not None:
+            # line-level: treat the whole <p> text as one "word" entry
+            text = "".join(p.itertext()).strip()
+            if text:
+                words.append({"time": p_begin, "end": p_end, "word": text})
+
+    words.sort(key=lambda w: w["time"])
+    return words
+
+
+def _fetch_lrclib(artist: str, title: str, duration: float | None = None) -> dict | None:
+    """fetch from lrclib.net. returns the JSON dict or None.
+    tries /api/get first (exact match) then /api/search as fallback."""
     import urllib.parse
     import urllib.request
 
-    if not artist or not title:
-        return None
+    headers = {"User-Agent": "streamd/1.0 (github.com/streamd; contact via twitch)"}
+
+    # primary: exact lookup
+    params: dict = {"track_name": title, "artist_name": artist}
+    if duration:
+        params["duration"] = str(int(duration))
+    url = "https://lrclib.net/api/get?" + urllib.parse.urlencode(params)
     try:
-        url = (
-            "https://api.lyrics.ovh/v1/"
-            + urllib.parse.quote(artist)
-            + "/"
-            + urllib.parse.quote(title)
-        )
-        with urllib.request.urlopen(url, timeout=6) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        lyrics = (data.get("lyrics") or "").strip()
-        return lyrics or None
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if resp.status == 200:
+                return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        log.info("[lyrics] fetch failed for %s - %s: %s", artist, title, e)
+        log.debug("[lyrics] lrclib get failed: %s", e)
+
+    # fallback: search
+    search_url = "https://lrclib.net/api/search?" + urllib.parse.urlencode(
+        {"track_name": title, "artist_name": artist}
+    )
+    try:
+        req = urllib.request.Request(search_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if resp.status == 200:
+                results = json.loads(resp.read().decode("utf-8"))
+                if results:
+                    return results[0]
+    except Exception as e:
+        log.debug("[lyrics] lrclib search failed: %s", e)
+
+    return None
+
+
+def _fetch_lrcmux(artist: str, title: str) -> dict | None:
+    """fetch word-synced lyrics from lrcmux.dev.
+    returns {lrc: str|None, ttml: str|None} or None on failure."""
+    import urllib.parse
+    import urllib.request
+
+    headers = {"User-Agent": "streamd/1.0"}
+    search_url = "https://lrcmux.dev/api/lyrics/search?" + urllib.parse.urlencode(
+        {"track": title, "artist": artist}
+    )
+    try:
+        req = urllib.request.Request(search_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            if resp.status != 200:
+                return None
+            results = json.loads(resp.read().decode("utf-8"))
+        # prefer word-synced results
+        candidates = results.get("results", []) if isinstance(results, dict) else results
+        if not candidates:
+            return None
+        # pick first with word sync, fall back to first with line sync, then any
+        best = None
+        for c in candidates:
+            if c.get("hasWordSync"):
+                best = c
+                break
+        if not best:
+            for c in candidates:
+                if c.get("hasLineSync"):
+                    best = c
+                    break
+        if not best:
+            best = candidates[0]
+
+        lyric_id = best.get("id")
+        if not lyric_id:
+            return None
+
+        fetch_url = f"https://lrcmux.dev/api/lyrics/{lyric_id}"
+        req2 = urllib.request.Request(fetch_url, headers=headers)
+        with urllib.request.urlopen(req2, timeout=8) as resp2:
+            if resp2.status != 200:
+                return None
+            return json.loads(resp2.read().decode("utf-8"))
+    except Exception as e:
+        log.debug("[lyrics] lrcmux failed: %s", e)
         return None
+
+
+def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -> dict:
+    """main lyrics fetch. returns a dict ready to broadcast as a lyrics event:
+    {
+        found: bool,
+        title, artist,
+        plain_lines: [str],          # plain text, one line each
+        synced_lines: [{time, text}], # LRC-parsed, empty if unavailable
+        synced_words: [{time, end, word}], # TTML-parsed, empty if unavailable
+        reason: str                  # only present when found=False
+    }
+    """
+    payload: dict = {
+        "found": False,
+        "title": title,
+        "artist": artist,
+        "plain_lines": [],
+        "synced_lines": [],
+        "synced_words": [],
+    }
+
+    # --- try lrcmux first for word-level sync ---
+    lrcmux_data = _fetch_lrcmux(artist, title)
+    if lrcmux_data:
+        ttml_text = lrcmux_data.get("ttml") or ""
+        lrc_text  = lrcmux_data.get("lrc") or ""
+        if ttml_text:
+            words = _parse_ttml_words(ttml_text)
+            if words:
+                payload["synced_words"] = words
+                payload["found"] = True
+                log.info("[lyrics] got word-synced lyrics from lrcmux for %s - %s", artist, title)
+        if lrc_text and not payload["synced_lines"]:
+            lines = _parse_lrc(lrc_text)
+            if lines:
+                payload["synced_lines"] = lines
+                payload["plain_lines"] = [l["text"] for l in lines if l["text"]]
+                payload["found"] = True
+
+    # --- fall back / supplement with lrclib ---
+    lrclib_data = _fetch_lrclib(artist, title, duration)
+    if lrclib_data:
+        synced_lrc = lrclib_data.get("syncedLyrics") or ""
+        plain_txt  = lrclib_data.get("plainLyrics") or ""
+
+        if synced_lrc and not payload["synced_lines"]:
+            lines = _parse_lrc(synced_lrc)
+            if lines:
+                payload["synced_lines"] = lines
+                payload["plain_lines"] = [l["text"] for l in lines if l["text"]]
+                payload["found"] = True
+                log.info("[lyrics] got line-synced lyrics from lrclib for %s - %s", artist, title)
+
+        if plain_txt and not payload["plain_lines"]:
+            cleaned = [l.rstrip() for l in plain_txt.splitlines()]
+            # strip leading/trailing blank lines
+            while cleaned and not cleaned[0]:
+                cleaned.pop(0)
+            while cleaned and not cleaned[-1]:
+                cleaned.pop()
+            if cleaned:
+                payload["plain_lines"] = cleaned
+                payload["found"] = True
+                log.info("[lyrics] got plain lyrics from lrclib for %s - %s", artist, title)
+
+    if not payload["found"]:
+        payload["reason"] = "couldn't find lyrics for this one"
+        log.info("[lyrics] no lyrics found for %s - %s", artist, title)
+
+    return payload
 
 
 def fetch_and_broadcast_lyrics(artist: str, title: str, user: str | None = None) -> None:
-    """fetches lyrics in a background thread and broadcasts a `lyrics` event.
-    used both for the manual !lyrics command and automatically on track change."""
+    """fetches lyrics in a background thread and broadcasts a `lyrics` event."""
+    music = state.data.get("music", {})
+    duration = music.get("duration") or None
 
     def _worker() -> None:
-        lyrics = _fetch_lyrics(artist, title)
-        payload = {"type": "lyrics"}
+        result = _fetch_lyrics_full(artist, title, duration)
+        payload = {"type": "lyrics", **result}
         if user is not None:
             payload["user"] = user
-        if lyrics:
-            lines = [line.rstrip() for line in lyrics.splitlines()]
-            while lines and not lines[0].strip():
-                lines.pop(0)
-            while lines and not lines[-1].strip():
-                lines.pop()
-            payload.update({"found": True, "title": title, "artist": artist, "lines": lines})
-        else:
-            payload.update({"found": False, "reason": "couldn't find lyrics for this one"})
         broadcast_sync(payload)
 
     threading.Thread(target=_worker, daemon=True, name="lyrics-fetch").start()
@@ -188,7 +389,8 @@ def handle_lyrics_command(user: str) -> None:
     artist = music.get("artist", "")
     if not title or title == "—":
         broadcast_sync({"type": "lyrics", "user": user, "found": False,
-                         "reason": "nothing playing right now"})
+                         "reason": "nothing playing right now",
+                         "plain_lines": [], "synced_lines": [], "synced_words": []})
         return
     fetch_and_broadcast_lyrics(artist, title, user=user)
 

@@ -127,8 +127,21 @@ async def ws_handler(ws) -> None:
                     await broadcast({"type": "pngtuber", "pngtuber": state.data["pngtuber"]})
 
                 elif cmd and cmd.startswith("media_"):
-                    from chat_irc import media_control
+                    from ytmusic_bridge import media_control
                     media_control(cmd[len("media_"):])
+
+                elif cmd == "request_song":
+                    from ytmusic_bridge import request_song
+                    query = val.strip()
+                    user = msg.get("user", "someone")
+                    if query:
+                        ok, result_message = await asyncio.to_thread(request_song, query, user)
+                        await broadcast({
+                            "type": "redeem_alert", "reward": "song request",
+                            "user": user, "message": result_message,
+                        })
+                        if ok:
+                            send_chat(result_message)
 
                 elif cmd and cmd.startswith("obs_"):
                     asyncio.create_task(obs_dispatch(cmd, msg))

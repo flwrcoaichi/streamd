@@ -52,6 +52,12 @@ _DEFAULT_REWARDS = {
         "message": "",
         "description": "1% +3 flags, 1% -half flags, 20% -1 flag, 70% nothing",
     },
+    "song request": {
+        "enabled": True,
+        "action": "song_request",
+        "message": "",
+        "description": "searches YouTube Music for the redeemer's input and plays it immediately",
+    },
 }
 
 
@@ -136,6 +142,7 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     from tts import tts_say
     from twitch_api import resolve_twitch_user_id, snooze_next_ad, apply_first_chatter_title_suffix
     from flags import add_flags, roll_flag_gamble, roll_flag_jackpot
+    from ytmusic_bridge import request_song
 
     rewards = state.data.get("rewards", {})
     key = None
@@ -157,6 +164,20 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
 
     action = cfg.get("action", "message")
     template = cfg.get("message", "")
+
+    # song_request has its own message resolution (the search result IS the
+    # message) so it's handled and logged separately from the shared
+    # template-substitution path below.
+    if action == "song_request":
+        query = (user_input or "").strip()
+        if not query:
+            return
+        ok, result_message = request_song(query, user)
+        message = (template or result_message).replace("{user}", user).replace("{arg}", user_input)
+        broadcast_sync({"type": "redeem_alert", "reward": key, "user": user, "message": message})
+        send_chat(message)
+        _log_redeem(key, user, message)
+        return
 
     count = None
     if action == "first_in_chat":

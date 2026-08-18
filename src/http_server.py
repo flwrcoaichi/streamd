@@ -8,7 +8,10 @@ import sys
 import tornado.ioloop
 import tornado.web
 
-from config import log, BASE_DIR, OVERLAY_DIR, PNGTUBER_DIR, PNGTUBER_STATES, MEDIA_DIR, MEDIA_EXTS, HTTP_PORT
+from config import (
+    log, BASE_DIR, OVERLAY_DIR, PNGTUBER_DIR, PNGTUBER_STATES, MEDIA_DIR, MEDIA_EXTS,
+    MV_CACHE_DIR, HTTP_PORT,
+)
 from state import state
 
 _REDEEM_PLAYER_HTML = """<!doctype html>
@@ -375,6 +378,7 @@ def start_http_server() -> None:
         (r"/redeem-player", OverlayHandler, {"filename": "redeem-player.html", "directory": OVERLAY_DIR}),
         (r"/media/(.*)", tornado.web.StaticFileHandler, {"path": str(MEDIA_DIR)}),
         (r"/media-list", MediaListHandler),
+        (r"/mv-cache/(.*)", tornado.web.StaticFileHandler, {"path": str(MV_CACHE_DIR)}),
         (r"/tts-voices", TTSVoicesHandler),
         (r"/state", CommandsHandler),
         (r"/control", OverlayHandler, {"filename": "control.html", "directory": OVERLAY_DIR}),

@@ -1,12 +1,15 @@
-import asyncio
 import socket
-import threading
 import time
 
-from config import log, PASS, NICK, CHAN, MAX_CHAT_LINES, STATS_INTERVAL, MUSIC_INTERVAL, BASE_DIR
+from config import log, PASS, NICK, CHAN, MAX_CHAT_LINES, STATS_INTERVAL
 from state import state
 from broadcast import broadcast_sync
-from helpers import write_atomic, get_cpu, get_mem, get_gpu, get_uptime, get_wpm
+from helpers import get_cpu, get_mem, get_gpu, get_uptime, get_wpm
+
+# NOTE: WinRT/SMTC-based media tracking (run_music_thread) and its
+# media_control() have been removed — playback state and transport
+# control now live in ytmusic_bridge.py, backed by pear-desktop's
+# companion API instead of the OS media session. See ytmusic_bridge.py.
 
 
 def run_stats_thread() -> None:
@@ -24,153 +27,6 @@ def run_stats_thread() -> None:
         except Exception as e:
             log.error("[stats] %s", e)
         time.sleep(STATS_INTERVAL)
-
-
-def run_music_thread() -> None:
-    from commands import fetch_and_broadcast_lyrics
-
-    try:
-        from winrt.windows.media.control import (
-            GlobalSystemMediaTransportControlsSessionManager as Manager,
-        )
-        from winrt.windows.storage.streams import DataReader, Buffer, InputStreamOptions
-    except ImportError:
-        log.info("[music] WinRT not available - try running pip install winrt-runtime winrt-Windows.Media.Control")
-        return
-
-    try:
-        import winrt
-        winrt.init_apartment()
-    except Exception as e:
-        log.debug("[music] winrt.init_apartment() unavailable/failed: %s", e)
-
-    async def _read_thumbnail(thumb_ref) -> bytes | None:
-        try:
-            stream = await thumb_ref.open_read_async()
-            size = stream.size
-            if not size:
-                return None
-            buf = Buffer(int(size))
-            result = await stream.read_async(buf, int(size), InputStreamOptions.READ_AHEAD)
-
-            reader = DataReader.from_buffer(result)
-            arr = bytearray(result.length)
-            reader.read_bytes(arr)
-
-            return bytes(arr)
-        except Exception as e:
-            log.debug("[music] thumbnail read error: %s", e)
-            return None
-
-    async def _poll() -> tuple:
-        mgr = await Manager.request_async()
-
-        sessions = list(mgr.get_sessions())
-
-        session = None
-        for s in sessions:
-            try:
-                if int(s.get_playback_info().playback_status) == 4:  # playing
-                    session = s
-                    break
-            except Exception:
-                continue
-
-        if session is None:
-            for s in sessions:
-                try:
-                    if "spotify" in (s.source_app_user_model_id or "").lower():
-                        session = s
-                        break
-                except Exception:
-                    continue
-
-        if session is None:
-            session = mgr.get_current_session()
-
-        state.media_session = session
-        if session is None:
-            return None, None, False, None, 0, 0
-        info = await session.try_get_media_properties_async()
-        status = session.get_playback_info()
-        playing = int(status.playback_status) == 4
-        thumb = info.thumbnail
-        art = await _read_thumbnail(thumb) if thumb else None
-        timeline = session.get_timeline_properties()
-        start_time = timeline.start_time.total_seconds()
-        end_time = timeline.end_time.total_seconds()
-        position = timeline.position.total_seconds()
-        duration = max(0.0, end_time - start_time)
-        return info.title, info.artist, playing, art, duration, max(0.0, position)
-
-    last_title = ""
-    last_source = ""
-    log.info("[music] winrt media tracking active")
-
-    while True:
-        try:
-            title, artist, playing, art, duration, position = asyncio.run(_poll())
-
-            source = ""
-            if state.media_session is not None:
-                try:
-                    source = state.media_session.source_app_user_model_id or ""
-                except Exception:
-                    pass
-            if source != last_source:
-                last_source = source
-                log.info("[music] active session: %s", source or "none")
-
-            if title:
-                music = {
-                    "title": title, "artist": artist or "", "playing": playing,
-                    "duration": duration, "position": position,
-                }
-                state.data["music"] = music
-                broadcast_sync({"type": "music", **music})
-                if title != last_title:
-                    last_title = title
-                    write_atomic(BASE_DIR / "music", f"{title}\nby {artist}")
-                    if art:
-                        with open(BASE_DIR / "art.png", "wb") as f:
-                            f.write(art)
-                        log.info("[music] art.png updated")
-                    fetch_and_broadcast_lyrics(artist, title)
-            else:
-                music = {
-                    "title": "—", "artist": "", "playing": False,
-                    "duration": 0, "position": 0,
-                }
-                state.data["music"] = music
-                broadcast_sync({"type": "music", **music})
-        except Exception as e:
-            log.debug("[music] %s", e)
-
-        time.sleep(MUSIC_INTERVAL)
-
-
-def media_control(action: str) -> None:
-    """runs a transport control action against the tracked winrt session"""
-    if state.media_session is None:
-        log.warning("[media] no active session for action %s", action)
-        return
-
-    async def _do() -> None:
-        try:
-            if action == "play":
-                await state.media_session.try_play_async()
-            elif action == "pause":
-                await state.media_session.try_pause_async()
-            elif action == "toggle":
-                await state.media_session.try_toggle_play_pause_async()
-            elif action == "next":
-                await state.media_session.try_skip_next_async()
-            elif action == "prev":
-                await state.media_session.try_skip_previous_async()
-        except Exception as e:
-            log.warning("[media] action %s failed: %s", action, e)
-
-    threading.Thread(target=lambda: asyncio.run(_do()), daemon=True).start()
 
 
 def _parse_irc_tags(line: str) -> dict:

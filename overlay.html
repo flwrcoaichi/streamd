@@ -1,0 +1,2181 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=1440" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <!-- Importing Courier Prime for the news feel, and Caveat for the sketched feel -->
+        <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Courier+Prime:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+        
+        <style>
+            *,
+            *::before,
+            *::after {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+
+
+            body { background: #00000000; }
+
+            /* hide legacy sketch/tui elements — tmux layout owns the screen */
+            #music, #alerts, #top-alerts, #top-bar, #postit,
+            #mode-note, #stats-win, #chat-container, #tui-stats {
+                display: none !important;
+            }
+
+            /* ── colorscheme overrides via ?cs= param ── */
+            /* catppuccin mocha */
+            html[data-cs="catppuccin"] { --accent: #cba6f7; --ink: #cdd6f4; }
+            /* solarized dark */
+            html[data-cs="solarized"]  { --accent: #2aa198; --ink: #839496; }
+            /* gruvbox */
+            html[data-cs="gruvbox"]    { --accent: #b8bb26; --ink: #ebdbb2; }
+            /* nord */
+            html[data-cs="nord"]       { --accent: #88c0d0; --ink: #eceff4; }
+            /* rose-pine */
+            html[data-cs="rosepine"]   { --accent: #eb6f92; --ink: #e0def4; }
+            html[data-cs="white"]     { --accent: #ffffff; --ink: #ffffff; }
+
+            /* ── tmux theme (only theme) ── */
+            :root {
+                --ink: #ffffff;
+                --paper: rgba(8, 10, 8, 0);
+                --paper-dark: rgba(8, 10, 8, 0.6);
+                --accent: #ffffff;
+                --red-ink: #ff6b6b;
+                --blue-ink: #7fd0ff;
+            }
+            #tmux-root {
+                display: grid;
+                position: fixed;
+                inset: 0;
+                grid-template-columns: repeat(12, 1fr);
+                grid-template-rows: 9vh 1fr 14vh 3vh;
+                gap: 6px;
+                padding: 6px;
+                font-family: 'Courier Prime', monospace;
+                color: var(--ink, #ffffff);
+                background: #00000000;
+                z-index: 5;
+            }
+            /* tmux-root is always active now */
+
+            #tmux-topright   { grid-column: 9 / 13; grid-row: 1; }
+            #tmux-center     { grid-column: 1 / 13; grid-row: 2; }
+            #tmux-bottomleft { grid-column: 1 / 5;   grid-row: 3; }
+            #tmux-bottomright{ grid-column: 5 / 13;  grid-row: 3; }
+            #tmux-statusbar  { grid-column: 1 / 13;  grid-row: 4; }
+
+            .tmux-panel {
+                background: var(--paper, rgba(8,10,8,0));
+                border: 1px solid var(--accent, #ffffff);
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            .tmux-title {
+                background: var(--accent, #ffffff);
+                color: #0a0d0a;
+                font-weight: 700;
+                font-size: 0.75rem;
+                letter-spacing: 0.05em;
+                padding: 1px 8px;
+                text-transform: lowercase;
+            }
+            .tmux-body {
+                flex: 1;
+                padding: 8px 10px;
+                font-size: 0.9rem;
+                line-height: 1.5;
+                white-space: pre-wrap;
+                overflow: hidden;
+            }
+            #tmux-center {
+                align-items: center;
+                justify-content: center;
+            }
+            #tmux-center .tmux-body {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+                font-size: 1.6rem;
+                font-weight: 700;
+                white-space: normal;
+            }
+            #tmux-center-body .cursor {
+                display: inline-block;
+                width: 0.6em;
+                background: var(--ink, #baffc9);
+                margin-left: 4px;
+                animation: tmuxBlink 1s step-end infinite;
+            }
+            @keyframes tmuxBlink {
+                50% { opacity: 0; }
+            }
+            /* ── music panel (topright) — full-bleed art + lyrics ── */
+            #tmux-topright {
+                position: relative;
+                overflow: hidden;
+            }
+            /* the .tmux-title "music" bar stays at top */
+            #tmux-music-bg {
+                position: absolute;
+                inset: 0;
+                z-index: 0;
+            }
+            /* album art as full-bleed background */
+            #tmux-music-bg-art {
+                position: absolute;
+                inset: 0;
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                transition: background-image 0.6s ease;
+                filter: brightness(0.55) saturate(0.8);
+            }
+            /* video background layer (shown when music_video broadcast arrives) */
+            #tmux-music-bg-video {
+                position: absolute;
+                inset: 0;
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: none;
+                filter: brightness(0.5) saturate(0.75);
+            }
+            #tmux-music-bg-video.active { display: block; }
+            /* gradient: top 25% dark for title bar legibility,
+               solid dark band at bottom for lyrics */
+            #tmux-music-gradient {
+                position: absolute;
+                inset: 0;
+                background:
+                    linear-gradient(to bottom,
+                        rgba(0,0,0,0.65) 0%,
+                        rgba(0,0,0,0) 28%,
+                        rgba(0,0,0,0) 48%,
+                        rgba(0,0,0,0.7) 72%,
+                        rgba(0,0,0,0.92) 100%
+                    );
+                z-index: 1;
+                pointer-events: none;
+            }
+            /* foreground content layer */
+            #tmux-music-content {
+                position: absolute;
+                inset: 0;
+                z-index: 2;
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+                padding: 6px 10px 8px;
+                pointer-events: none;
+            }
+            /* track info row */
+            #tmux-music-info {
+                display: flex;
+                align-items: baseline;
+                gap: 6px;
+                margin-bottom: 5px;
+                white-space: nowrap;
+                overflow: hidden;
+            }
+            #tmux-music-playstatus {
+                font-size: 0.7rem;
+                opacity: 0.7;
+                flex-shrink: 0;
+            }
+            #tmux-music-trackname {
+                font-weight: 700;
+                font-size: 0.88rem;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                color: #fff;
+                text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+            }
+            #tmux-music-artistname {
+                font-size: 0.75rem;
+                opacity: 0.75;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                flex-shrink: 0;
+                color: #fff;
+                text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+            }
+            /* lyrics container */
+            #tmux-lyrics-box {
+                display: flex;
+                flex-direction: column;
+                gap: 1px;
+                max-height: 52%;
+                overflow: hidden;
+            }
+            /* each lyrics line */
+            .tmux-lyric-line {
+                font-size: 0.82rem;
+                line-height: 1.35;
+                color: rgba(255,255,255,0.45);
+                white-space: pre-wrap;
+                transition: color 0.2s ease, font-size 0.2s ease, opacity 0.2s ease;
+                text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .tmux-lyric-line.active {
+                color: rgba(255,255,255,1);
+                font-size: 0.92rem;
+                font-weight: 700;
+            }
+            .tmux-lyric-line.next {
+                color: rgba(255,255,255,0.7);
+                font-size: 0.85rem;
+            }
+            /* word-level: each word is a span; sung words get .sung class */
+            .tmux-lyric-word {
+                display: inline;
+                transition: color 0.08s ease, text-shadow 0.08s ease;
+            }
+            .tmux-lyric-line.active .tmux-lyric-word.sung {
+                color: var(--accent, #ffffff);
+                text-shadow: 0 0 8px var(--accent, #ffffff), 0 1px 3px rgba(0,0,0,0.9);
+            }
+            /* no-art fallback: show plain panel */
+            #tmux-topright.no-art #tmux-music-bg-art { opacity: 0; }
+            #tmux-topright.no-art .tmux-lyric-line { color: rgba(255,255,255,0.5); }
+            #tmux-topright.no-art .tmux-lyric-line.active { color: var(--ink); }
+            #tmux-chat-body {
+                display: flex;
+                flex-direction: column;
+                justify-content: flex-end;
+                gap: 2px;
+            }
+            #tmux-chat-body .tmux-chat-line {
+                font-size: 0.82rem;
+            }
+            #tmux-chat-body .tmux-chat-line .u {
+                color: var(--accent, #ffffff);
+                font-weight: 700;
+                margin-right: 6px;
+            }
+            #tmux-statusbar {
+                background: var(--accent, #ffffff);
+                color: #0a0d0a;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 10px;
+                font-size: 0.8rem;
+                font-weight: 700;
+                gap: 8px;
+            }
+            #tmux-statusbar-left {
+                flex: 1;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+            }
+            #tmux-statusbar-right {
+                flex-shrink: 0;
+                opacity: 0.8;
+                letter-spacing: 0.04em;
+                white-space: nowrap;
+            }
+            .tmux-fade {
+                transition: opacity 0.25s ease;
+            }
+            .tmux-fade.out {
+                opacity: 0;
+            }
+            #tmux-topleft-body {
+                font-size: 1.05rem;
+            }
+            #tmux-topleft-body.tmux-flash {
+                font-weight: 700;
+            }
+
+            /* ── terminal status corner (topleft) ──────────────────────────
+               fixed 30x15 character grid, monospace, text-only. cycles
+               through socials / pc status / now-playing by default, and
+               gets pre-empted by live events (follow, raid, sub, bits,
+               check-in, !status, !lyrics) with a short typing-in animation. */
+            #tmux-topleft {
+                position: absolute;
+                top: 6px;
+                left: 6px;
+                width: 66%;
+                flex: none;
+                z-index: 2;
+            }
+            #tmux-topleft .tmux-body {
+                font-family: 'Courier Prime', monospace;
+                font-size: 0.82rem;
+                line-height: 1.15rem;
+                width: 60ch;
+                height: 10ch;
+                flex: none;
+                padding: 8px 10px;
+                white-space: pre;
+                overflow: hidden;
+            }
+            #tmux-topleft-body .term-line {
+                display: block;
+                white-space: pre;
+                overflow: hidden;
+                text-overflow: clip;
+            }
+            #tmux-topleft-body .term-line.lyrics-active {
+                color: var(--ink, #baffc9);
+                font-weight: 700;
+            }
+            #tmux-topleft-body .term-cursor {
+                display: inline-block;
+                width: 0.6em;
+                background: var(--ink, #baffc9);
+                margin-left: 1px;
+                animation: tmuxBlink 1s step-end infinite;
+            }
+            #tmux-topleft-body.term-event .term-line {
+                color: var(--ink, #baffc9);
+            }
+            #tmux-topleft-title.term-event-title {
+                animation: termTitlePulse 0.9s ease-in-out 2;
+            }
+            @keyframes termTitlePulse {
+                0%, 100% { filter: brightness(1); }
+                50%      { filter: brightness(1.6); }
+            }
+            /* per-line typing reveal for event panels */
+            #tmux-topleft-body .term-line.term-typing {
+                overflow: hidden;
+                border-right: none;
+                animation: termType 0.28s steps(60, end);
+            }
+            @keyframes termType {
+                from { clip-path: inset(0 100% 0 0); }
+                to   { clip-path: inset(0 0 0 0); }
+            }
+
+
+            #tts-popup {
+                position: absolute;
+                top: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                z-index: 1200;
+                min-width: 320px;
+                max-width: 640px;
+                justify-content: center;
+                display: flex;
+                align-items: center;
+                gap: 14px;
+                padding: 14px 30px;
+                opacity: 0;
+                pointer-events: none;
+            }
+            #tts-popup {
+                transition: opacity 0.25s ease, transform 0.25s ease;
+                transform: translateX(-50%) translateY(-6px);
+            }
+            #tts-popup.vis {
+                opacity: 1;
+                transform: translateX(-50%) translateY(0);
+            }
+            #tts-popup-label {
+                font-family: 'Caveat', cursive;
+                font-size: 1.3rem;
+                font-weight: 700;
+            }
+            #tts-popup-text {
+                font-size: 1.1rem;
+                font-weight: bold;
+                text-align: left;
+            }
+            #tts-popup { display: none !important; } /* tts popup hidden in tmux layout */
+
+            /* --- FLAGS OVERLAY --- */
+            #flags-overlay {
+                position: absolute;
+                inset: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1300;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.3s ease;
+            }
+            #flags-overlay.vis { opacity: 1; }
+            #flags-box {
+                min-width: 480px;
+                max-width: 800px;
+                padding: 30px 44px;
+                text-align: center;
+            }
+            #flags-title {
+                font-family: 'Caveat', cursive;
+                font-size: 2.6rem;
+                font-weight: 700;
+                margin-bottom: 6px;
+            }
+            #flags-delta {
+                font-size: 1.2rem;
+                font-weight: bold;
+                margin-bottom: 18px;
+                color: var(--red-ink);
+            }
+            #flags-list {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                text-align: left;
+            }
+            .flags-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                font-size: 1.3rem;
+                border-bottom: 1px dashed var(--ink);
+                padding-bottom: 4px;
+            }
+            .flags-row.me { color: var(--red-ink); font-weight: bold; }
+            .flags-row .fr-name { font-family: 'Courier Prime', monospace; font-weight: bold; }
+            .flags-row .fr-groups { display: flex; gap: 4px; }
+            .flags-row .fr-groups span {
+                font-size: 0.95rem;
+                border: 1px solid var(--ink);
+                border-radius: 3px;
+                padding: 0 5px;
+            }
+            #flags-box, #flags-title, .flags-row { font-family: 'Courier Prime', monospace; }
+
+            html,
+            body {
+                width: 1440px;
+                height: 1080px;
+                background: transparent;
+                overflow: hidden;
+                font-family: 'Courier Prime', monospace;
+                color: var(--ink);
+            }
+
+            /* --- SKETCHED AESTHETIC (For Music & Alerts) --- */
+            .sketched-box {
+                background-color: var(--paper);
+                border: 2px solid var(--ink);
+                /* Wonky, hand-drawn border radius */
+                border-radius: 2px 255px 3px 25px / 255px 5px 225px 3px;
+                box-shadow: 3px 3px 0px rgba(43, 43, 43, 0.8);
+                position: relative;
+            }
+
+            /* Archival noise texture */
+            .sketched-box::before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                opacity: 0.15;
+                pointer-events: none;
+                background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+                border-radius: inherit;
+                z-index: 0;
+            }
+            
+            .sketched-content {
+                position: relative;
+                z-index: 1;
+            }
+
+            /* --- BOTTOM LAYOUT --- */
+            #strip {
+                position: absolute;
+                bottom: 30px;
+                left: 60px;
+                right: 40px;
+                display: flex;
+                align-items: flex-end;
+                justify-content: space-between;
+                pointer-events: none;
+            }
+
+            /* --- MUSIC WIDGET --- */
+            #music {
+                display: flex;
+                align-items: center;
+                gap: 15px;
+                padding: 12px 18px;
+                max-width: 450px;
+                min-width: 250px;
+                opacity: 0;
+                transform: translateY(20px) rotate(-1deg);
+                transition: opacity 0.5s, transform 0.5s;
+            }
+            
+            #music.vis {
+                opacity: 1;
+                transform: translateY(0) rotate(-1deg);
+            }
+            #music.pau {
+                opacity: 0.7;
+            }
+
+            #art-wrap {
+                width: 60px;
+                height: 60px;
+                flex-shrink: 0;
+                border: 2px solid var(--ink);
+                border-radius: 255px 5px 225px 3px / 2px 255px 3px 25px;
+                overflow: hidden;
+                position: relative;
+                background: var(--paper-dark);
+            }
+
+            #album-art {
+                width: 100%;
+                height: 100%;
+                object-fit: cover;
+                display: none;
+                mix-blend-mode: multiply;
+                filter: grayscale(20%) sepia(20%);
+            }
+
+            #minfo {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            #mlbl {
+                font-size: 0.75rem;
+                font-weight: bold;
+                text-transform: uppercase;
+                letter-spacing: 2px;
+                color: var(--red-ink);
+                border-bottom: 1px dashed var(--ink);
+                padding-bottom: 2px;
+                width: max-content;
+            }
+
+            #mtitle {
+                font-family: 'Caveat', cursive;
+                font-size: 1.5rem;
+                font-weight: 700;
+                line-height: 1.1;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            #martist {
+                font-size: 0.9rem;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            /* --- ALERTS --- */
+            #alerts {
+                position: absolute;
+                top: 80px; /* Shifted down slightly to avoid the top bar */
+                left: 50%;
+                transform: translateX(-50%);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 15px;
+                pointer-events: none;
+                z-index: 10;
+            }
+
+            .alert {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                padding: 16px 32px;
+                min-width: 380px;
+                opacity: 0;
+                animation: stampIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards,
+                           alertOut 0.4s ease-in var(--dur, 5s) forwards;
+                background: linear-gradient(135deg, var(--paper) 0%, var(--paper) 60%, var(--paper-dark) 100%);
+            }
+
+            @keyframes stampIn {
+                0% { opacity: 0; transform: scale(2) rotate(10deg); }
+                50% { opacity: 1; transform: scale(0.9) rotate(-2deg); }
+                100% { opacity: 1; transform: scale(1) rotate(0deg); }
+            }
+            @keyframes alertOut {
+                to { opacity: 0; transform: translateY(-20px) scale(0.96); filter: blur(2px); }
+            }
+ /* --- KEYFRAMES --- */
+        @keyframes popIn {
+            0% { opacity: 0; transform: scale(0.8) translateY(20px) rotate(-5deg); }
+            100% { opacity: 1; transform: scale(1) translateY(0) rotate(var(--rot, -1deg)); }
+        }
+
+        @keyframes fadeOutUp {
+            0% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-20px) scale(0.95); filter: blur(2px); }
+        }
+
+        @keyframes tickerScroll {
+            0% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+        }
+
+
+            .alert-body {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                text-align: center;
+                width: 100%;
+            }
+
+            .alert-msg {
+                font-family: 'Caveat', cursive;
+                font-size: 2rem;
+                font-weight: bold;
+                line-height: 1;
+            }
+
+            .alert-sub {
+                font-size: 1rem;
+                font-weight: bold;
+                color: var(--ink);
+            }
+
+            /* --- FOLLOW / RAID TOP-CENTER BANNER --- */
+            #top-alerts {
+                position: absolute;
+                top: 30px;
+                left: 50%;
+                transform: translateX(-50%);
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 12px;
+                z-index: 1100;
+                pointer-events: none;
+            }
+            .top-alert {
+                display: flex;
+                align-items: center;
+                gap: 18px;
+                padding: 14px 30px;
+                min-width: 420px;
+                justify-content: center;
+                opacity: 0;
+                animation: topAlertIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards,
+                           topAlertOut 0.5s ease-in var(--dur, 6s) forwards;
+            }
+            .top-alert.raid {
+                background: linear-gradient(135deg, var(--paper) 0%, var(--paper) 55%, #e6c9a8 100%);
+                border-color: var(--red-ink);
+            }
+            .top-alert-label {
+                font-family: 'Caveat', cursive;
+                font-size: 1.6rem;
+                font-weight: 700;
+            }
+            .top-alert-name {
+                font-size: 1rem;
+                font-weight: bold;
+                color: var(--red-ink);
+            }
+            @keyframes topAlertIn {
+                0% { opacity: 0; transform: translateY(-40px) scale(0.85); }
+                60% { opacity: 1; transform: translateY(6px) scale(1.03); }
+                100% { opacity: 1; transform: translateY(0) scale(1); }
+            }
+            @keyframes topAlertOut {
+                to { opacity: 0; transform: translateY(-30px) scale(0.92); filter: blur(2px); }
+            }
+
+            /* --- FULL-WIDTH FUZZY TOP BAR (Status only now) --- */
+            #top-bar {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                padding: 4px 40px;
+                display: flex;
+                align-items: center;
+                transform: translateY(-100%);
+                transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+                z-index: 1000;
+                border-bottom: none;
+                color: var(--paper);
+                box-shadow: none;
+            }
+
+            #top-bar.vis {
+                transform: translateY(0);
+            }
+            #top-bar.red {
+                background-color: var(--red-ink);
+            }
+            #top-bar.blue {
+                background-color: var(--blue-ink);
+            }
+
+            /* --- MESSAGE POST-IT (top-right corner) --- */
+            #postit {
+                position: absolute;
+                top: 40px;
+                right: 50px;
+                max-width: 320px;
+                min-width: 180px;
+                width: max-content;
+                padding: 18px 22px 22px;
+                transform: rotate(3deg) translateY(-140%);
+                transform-origin: top center;
+                opacity: 0;
+                transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 1.2s ease;
+                z-index: 900;
+                font-family: 'Caveat', cursive;
+                font-size: 1.6rem;
+                line-height: 1.25;
+            }
+            #postit.vis {
+                transform: rotate(3deg) translateY(0);
+                opacity: 1;
+            }
+            #postit.faded {
+                opacity: 0.4;
+            }
+
+            #top-bar::after {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.5'/%3E%3C/svg%3E");
+                mix-blend-mode: overlay;
+                z-index: 0;
+                pointer-events: none;
+            }
+
+
+            .tb-inner {
+                position: relative;
+                z-index: 1;
+                display: flex;
+                align-items: center;
+                width: 100%;
+            }
+
+            #tb-cipher {
+                flex-shrink: 0;
+            }
+
+            #tb-text {
+                flex-grow: 1;
+                text-align: center;
+                font-size: 1rem;
+                font-weight: bold;
+                letter-spacing: 1px;
+                text-shadow: 1px 1px 0px rgba(0,0,0,0.4);
+            }
+
+
+            /* --- CIPHER STYLES --- */
+            .cipher-wrap {
+                display: inline-flex;
+                flex-direction: column;
+                line-height: 1.1;
+                font-family: 'Courier Prime', monospace;
+                letter-spacing: 2px;
+                align-items: center;
+            }
+            .cipher-row {
+                white-space: pre;
+            }
+
+            /* Adjust cipher color based on where it is */
+            .alert-type .cipher-wrap {
+                color: var(--red-ink);
+                font-size: 0.9rem;
+            }
+            #tb-cipher .cipher-wrap {
+                color: var(--paper);
+                font-size: 0.8rem;
+                text-shadow: 1px 1px 0px rgba(0,0,0,0.4);
+            }
+            /* --- CHAT WIDGET STYLES --- */
+        #chat-container {
+            position: absolute;
+            bottom: 140px; /* Keep it above the lower third */
+            left: 40px;
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            justify-content: flex-end;
+            height: 600px;
+            pointer-events: none; /* Let clicks pass through */
+            transition: width 0.5s ease, height 0.5s ease, bottom 0.5s ease;
+            z-index: 800;
+        }
+
+        #chat-container.mode-chat {
+            width: 480px;
+            height: 760px;
+            bottom: 220px; /* clears the music widget in #strip */
+        }
+
+        .chat-message {
+            padding: 12px 16px;
+            font-family: 'Caveat', cursive;
+            font-size: 1.4rem;
+            line-height: 1.2;
+            transform: rotate(-1deg); /* Slight tilt for handwritten feel */
+            animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            opacity: 0;
+            transform-origin: bottom left;
+            transition: font-size 0.4s ease, padding 0.4s ease;
+        }
+
+        #chat-container.mode-chat .chat-message {
+            font-size: 1.7rem;
+            padding: 14px 20px;
+        }
+
+        /* Side note that appears next to chat during chat-mode / starting-ending */
+        #mode-note {
+            position: absolute;
+            left: 545px;
+            bottom: 240px;
+            width: 190px;
+            padding: 18px 16px 24px;
+            transform: rotate(-4deg);
+            transform-origin: bottom left;
+            opacity: 0;
+            transition: opacity 0.6s ease, bottom 0.5s ease;
+            font-family: 'Caveat', cursive;
+            font-size: 1.4rem;
+            line-height: 1.2;
+            text-align: center;
+            z-index: 850;
+            pointer-events: none;
+        }
+        #mode-note.vis {
+            opacity: 1;
+        }
+        #mode-note .note-accent {
+            display: block;
+            width: 40px;
+            height: 4px;
+            margin: 6px auto 0;
+            border-radius: 2px;
+            background: var(--ink);
+        }
+        #mode-note.starting .note-accent { background: var(--blue-ink); }
+        #mode-note.ending .note-accent { background: var(--red-ink); }
+
+        /* Alternate rotation for variety */
+        .chat-message:nth-child(even) {
+            transform: rotate(1deg);
+            border-radius: 255px 5px 225px 3px / 2px 255px 3px 25px; /* flipped rough border */
+        }
+
+        .chat-username-row {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 4px;
+            width: max-content;
+        }
+
+        .chat-badge {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+
+        .chat-username {
+            font-family: 'Courier Prime', monospace;
+            font-weight: bold;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: -0.5px;
+            border-bottom: 1px dashed #2b2b2b;
+            padding-bottom: 2px;
+            width: max-content;
+        }
+
+        .chat-text {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 2px 4px;
+        }
+
+        .chat-emote {
+            height: 1.6em;
+            vertical-align: middle;
+            display: inline-block;
+        }
+
+        /* Animation to remove the chat message */
+        .chat-fade-out {
+            animation: fadeOutUp 0.6s ease-in forwards !important;
+        }
+
+        /* --- !status STATS WINDOW --- */
+        #stats-win {
+            position: absolute;
+            bottom: 40px;
+            right: 50px;
+            width: max-content;
+            min-width: 200px;
+            padding: 16px 24px;
+            opacity: 0;
+            transform: translateY(30px) scale(0.9);
+            transition: opacity 0.4s, transform 0.4s, bottom 0.5s ease;
+            z-index: 950;
+        }
+        #stats-win.mode-chat {
+            bottom: 220px;
+        }
+        #stats-win.vis {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        #stats-win h3 {
+            font-family: 'Caveat', cursive;
+            font-size: 1.6rem;
+            text-align: center;
+            border-bottom: 1px dashed var(--ink);
+            padding-bottom: 6px;
+            margin-bottom: 8px;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 24px;
+            font-size: 0.85rem;
+            padding: 3px 0;
+        }
+        .stat-row span:first-child {
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--red-ink);
+            font-weight: bold;
+        }
+        </style>
+    </head>
+    <body>
+
+        <!-- tui theme: always-on stats corner -->
+        <div id="tui-stats"></div>
+
+        <!-- tmux theme: ambient fx layer -->
+        <div id="tmux-fx"></div>
+
+        <!-- tmux theme: full-viewport pane layout -->
+        <div id="tmux-root">
+            <div class="tmux-panel" id="tmux-topleft">
+                <div class="tmux-title" id="tmux-topleft-title">pc status</div>
+                <div class="tmux-body tmux-fade" id="tmux-topleft-body"></div>
+            </div>
+            <div class="tmux-panel" id="tmux-topright">
+                <div class="tmux-title" id="tmux-music-title-bar">music</div>
+                <!-- background layers -->
+                <div id="tmux-music-bg">
+                    <div id="tmux-music-bg-art"></div>
+                    <video id="tmux-music-bg-video" autoplay loop muted playsinline></video>
+                    <div id="tmux-music-gradient"></div>
+                </div>
+                <!-- foreground: track info + lyrics -->
+                <div id="tmux-music-content">
+                    <div id="tmux-music-info">
+                        <span id="tmux-music-playstatus">▶</span>
+                        <span id="tmux-music-trackname">-</span>
+                        <span id="tmux-music-artistname"></span>
+                    </div>
+                </div>
+            </div>
+            <div class="tmux-panel" id="tmux-center">
+                <div class="tmux-body" id="tmux-center-body"></div>
+            </div>
+            <div class="tmux-panel" id="tmux-bottomleft">
+                <div class="tmux-title">extra</div>
+                <!-- edit the placeholder below directly, or push updates over
+                     the socket with {"cmd":"set_extra","value":"..."} -->
+                <div class="tmux-body" id="tmux-extra-body">flwr/ashOS pre-4<br>© 1998 flowerCO, © ???? ????????<br>For Monitoring S0-ACZ4<br><p style="color: red;">Failed to monitor CAM1 on Channel4</p>Monitoring DWM1 on Channel4</div>
+            </div>
+            <div class="tmux-panel" id="tmux-bottomright">
+                <div class="tmux-title">chat</div>
+                <div class="tmux-body" id="tmux-chat-body"></div>
+            </div>
+            <div id="tmux-statusbar">
+                <span id="tmux-statusbar-left">—</span>
+                <span id="tmux-statusbar-right"></span>
+            </div>
+        </div>
+
+        <!-- Emergency Action Style Top Bar -->
+        <div id="top-bar" class="red">
+            <div class="tb-inner">
+                <div id="tb-cipher"></div>
+                <div id="tb-text"></div>
+                <!-- Empty div on the right keeps the text perfectly centered -->
+                <div style="flex-shrink: 0; width: 60px;"></div>
+            </div>
+        </div>
+
+        <!-- Follow/Raid Top Banner -->
+        <div id="top-alerts"></div>
+        <!-- TTS Popup -->
+        <div id="tts-popup" class="sketched-box">
+            <span id="tts-popup-label">speaking</span>
+            <span id="tts-popup-text"></span>
+        </div>
+
+        <!-- Message Post-it -->
+        <div id="postit" class="sketched-box"><div id="postit-text" class="sketched-content"></div></div>
+
+        <!-- Flags Overlay -->
+        <div id="flags-overlay">
+            <div id="flags-box" class="sketched-box">
+                <div class="sketched-content">
+                    <div id="flags-title">flags</div>
+                    <div id="flags-delta"></div>
+                    <div id="flags-list"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alerts Area -->
+        <div id="alerts"></div>
+         <!-- Chat Area -->
+    <div id="chat-container"></div>
+    <div id="mode-note" class="sketched-box"><div id="mode-note-text" class="sketched-content"></div></div>
+    <div id="stats-win" class="sketched-box">
+        <div class="sketched-content">
+            <h3>!status</h3>
+            <div class="stat-row"><span>cpu</span><span id="st-cpu">…</span></div>
+            <div class="stat-row"><span>mem</span><span id="st-mem">…</span></div>
+            <div class="stat-row"><span>gpu</span><span id="st-gpu">…</span></div>
+            <div class="stat-row"><span>wpm</span><span id="st-wpm">…</span></div>
+            <div class="stat-row"><span>uptime</span><span id="st-uptime">…</span></div>
+        </div>
+    </div>
+        <!-- Bottom UI Strip -->
+        <div id="strip">
+            <!-- Music Widget -->
+            <div id="music" class="sketched-box">
+                <div class="sketched-content" style="display: flex; gap: 15px; align-items: center; width: 100%;">
+                    <div id="art-wrap">
+                        <img id="album-art" alt="" />
+                    </div>
+                    <div id="minfo">
+                        <span id="mlbl">DETECTED AUDIO</span>
+                        <span id="mtitle">—</span>
+                        <span id="martist">—</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            (function () {
+                // colorscheme: ?cs=catppuccin|solarized|gruvbox|nord|rosepine
+                const params = new URLSearchParams(location.search);
+                const cs = params.get("cs") || localStorage.getItem("overlay-cs") || "";
+                if (cs) {
+                    document.documentElement.setAttribute("data-cs", cs);
+                    localStorage.setItem("overlay-cs", cs);
+                }
+                // channel name for 7tv emote loading: ?channel=yourname
+                window.OVERLAY_CHANNEL = params.get("channel") || localStorage.getItem("overlay-channel") || "";
+                if (params.get("channel")) localStorage.setItem("overlay-channel", params.get("channel"));
+            })();
+        </script>
+        <script>
+            const $ = (id) => document.getElementById(id);
+            const music = $("music"), albumArt = $("album-art");
+            const mtitle = $("mtitle"), martist = $("martist"), mlbl = $("mlbl");
+            const alertsEl = $("alerts");
+            let artPoll = null; // kept for compat, no longer used for polling
+            const chatContainer = $("chat-container");
+
+            // ── terminal status corner (topleft) ──────────────────────────
+            // fixed 30x15 text terminal. idles cycling through socials / pc
+            // status / now playing, and gets pre-empted by live events
+            // (!status, !lyrics, follow, raid, sub, resub, bits, check-in)
+            // which type themselves in, hold, then hand back to the idle
+            // cycle. edit TMUX_SOCIALS freely.
+            const TMUX_SOCIALS = [
+                "twitter: @vanillyn_net",
+                "discord: @vanillyn",
+            ];
+            const TERM_COLS = 60;
+            const TERM_ROWS = 15;
+
+            function termWrap(line) {
+                // hard-wrap a single logical line to the terminal width so
+                // long usernames/messages don't get clipped by overflow:hidden
+                const out = [];
+                let s = String(line);
+                if (s.length === 0) { out.push(""); return out; }
+                while (s.length > TERM_COLS) {
+                    out.push(s.slice(0, TERM_COLS));
+                    s = s.slice(TERM_COLS);
+                }
+                out.push(s);
+                return out;
+            }
+
+            let termEventTimer = null;
+            let lyricsState = null;
+            let lyricsFrame = null;
+            // topleft sticks to one panel until a chat command (!panel) changes it
+            let currentPanel = "socials";
+
+            function termIdlePanels() {
+                return {
+                    socials: { title: "socials", lines: TMUX_SOCIALS, cursor: true },
+                    status: { title: "pc status", lines: [
+                        `cpu    ${lastStats.cpu}`,
+                        `mem    ${lastStats.mem}`,
+                        `uptime ${lastStats.uptime}`,
+                    ] },
+                };
+            }
+
+            function renderTermPanel(title, lines, opts = {}) {
+                const body = $("tmux-topleft-body"), titleEl = $("tmux-topleft-title");
+                if (!body || !titleEl) return;
+                const animate = !!opts.animate;
+                body.classList.add("out");
+                setTimeout(() => {
+                    titleEl.textContent = title;
+                    body.classList.toggle("term-event", !!opts.isEvent);
+                    body.innerHTML = "";
+                    delete body.dataset.lyricsKey;
+                    const wrapped = lines.flatMap(termWrap).slice(0, TERM_ROWS);
+                    wrapped.forEach((l, i) => {
+                        const div = document.createElement("span");
+                        div.className = "term-line" + (animate ? " term-typing" : "");
+                        if (animate) div.style.animationDelay = (i * 0.05) + "s";
+                        div.textContent = l;
+                        body.appendChild(div);
+                    });
+                    if (opts.cursor) {
+                        const cur = document.createElement("span");
+                        cur.className = "term-cursor";
+                        cur.innerHTML = "&nbsp;";
+                        const last = body.lastElementChild;
+                        if (last) last.appendChild(cur);
+                    }
+                    if (opts.isEvent) {
+                        titleEl.classList.remove("term-event-title");
+                        void titleEl.offsetWidth; // restart pulse animation
+                        titleEl.classList.add("term-event-title");
+                    }
+                    body.classList.remove("out");
+                }, 200);
+            }
+
+            function renderTermIdle() {
+                if (termEventTimer) return; // an event is currently holding the panel
+                if (lyricsState) {
+                    renderLyricsPanel();
+                    return;
+                }
+                const panels = termIdlePanels();
+                const panel = panels[currentPanel] || panels.socials;
+                renderTermPanel(panel.title, panel.lines, { cursor: !!panel.cursor });
+            }
+
+            function setTermPanel(name) {
+                if (!termIdlePanels()[name]) return;
+                currentPanel = name;
+                if (!lyricsState && !termEventTimer) renderTermIdle();
+            }
+
+            function renderLyricsPanel() {
+                if (!lyricsState || termEventTimer) return;
+                const body = $("tmux-topleft-body"), titleEl = $("tmux-topleft-title");
+                if (!body || !titleEl) return;
+                const synced = lyricsState.syncedLines;
+                const elapsed = synced.length
+                    ? lyricsState.position + (
+                        lyricsState.playing ? (performance.now() - lyricsState.updatedAt) / 1000 : 0
+                    )
+                    : (performance.now() - lyricsState.startedAt) / 1000;
+                const activeIndex = synced.length
+                    ? synced.reduce((last, line, index) => line.time <= elapsed ? index : last, -1)
+                    : -1;
+                const displayLines = synced.length ? synced.map((line) => line.text) : lyricsState.lines;
+                const key = lyricsState.title + "\n" + displayLines.join("\n") + "\n" + activeIndex;
+                titleEl.textContent = "lyrics: " + lyricsState.title;
+                body.classList.remove("term-event");
+                if (body.dataset.lyricsKey !== key) {
+                    body.innerHTML = "";
+                    displayLines.forEach((line, lineIndex) => {
+                        termWrap(line).forEach((wrappedLine, wrappedIndex) => {
+                            const row = document.createElement("span");
+                            row.className = "term-line" + (
+                                synced.length && lineIndex === activeIndex && wrappedIndex === 0
+                                    ? " lyrics-active" : ""
+                            );
+                            row.dataset.lyricsLine = String(lineIndex);
+                            row.textContent = wrappedLine;
+                            body.appendChild(row);
+                        });
+                    });
+                    body.dataset.lyricsKey = key;
+                }
+
+                if (synced.length) {
+                    const activeRow = body.querySelector(`[data-lyrics-line="${activeIndex}"]`);
+                    if (activeRow) body.scrollTop = Math.max(0, activeRow.offsetTop - body.clientHeight / 2);
+                } else {
+                    // Plain LRCLIB lyrics have no timestamps, so use a slow
+                    // line-count-based crawl rather than faking sync.
+                    const lineCount = displayLines.flatMap(termWrap).length;
+                    const duration = Math.max(180, lineCount * 8);
+                    const progress = Math.max(0, Math.min(1, elapsed / duration));
+                    body.scrollTop = (body.scrollHeight - body.clientHeight) * progress;
+                }
+            }
+
+            function keepLyricsMoving() {
+                renderLyricsPanel();
+                if (lyricsState) lyricsFrame = requestAnimationFrame(keepLyricsMoving);
+            }
+
+            function showLyrics(title, artist, lines, duration, position, playing, syncedLines = []) {
+                lyricsState = {
+                    title: title || "unknown track",
+                    artist: artist || "",
+                    lines: lines || [],
+                    syncedLines: syncedLines || [],
+                    duration: Number(duration) || 0,
+                    position: Number(position) || 0,
+                    playing: !!playing,
+                    updatedAt: performance.now(),
+                    startedAt: performance.now(),
+                };
+                if (lyricsFrame) cancelAnimationFrame(lyricsFrame);
+                renderLyricsPanel();
+                lyricsFrame = requestAnimationFrame(keepLyricsMoving);
+            }
+
+            function clearLyrics() {
+                lyricsState = null;
+                if (lyricsFrame) cancelAnimationFrame(lyricsFrame);
+                lyricsFrame = null;
+                if (!termEventTimer) renderTermIdle();
+            }
+
+            // legacy alias — older code below still calls renderTmuxTopLeft()
+            // for "the idle panel changed under me, redraw it"
+            function renderTmuxTopLeft() { renderTermIdle(); }
+
+            // pushes an event panel (follow/raid/sub/bits/checkin/!status/!lyrics)
+            // to the front, holds it for holdMs, then hands control back to the
+            // idle cycle. holdMs === null means "held until cleared explicitly"
+            // (used for tts speaking, which has no fixed duration).
+            function showTermEvent(title, lines, holdMs = 6000) {
+                if (termEventTimer) { clearTimeout(termEventTimer); termEventTimer = null; }
+                renderTermPanel(title, lines, { animate: true, isEvent: true });
+                if (holdMs != null) {
+                    termEventTimer = setTimeout(() => {
+                        termEventTimer = null;
+                        renderTermIdle();
+                    }, holdMs);
+                } else {
+                    termEventTimer = true; // truthy sentinel: held until cleared
+                }
+            }
+            function clearTermEvent() {
+                if (termEventTimer && termEventTimer !== true) clearTimeout(termEventTimer);
+                termEventTimer = null;
+                renderTermIdle();
+            }
+
+            // old name, same behavior — kept so the rest of the file (follow/
+            // raid handlers etc, further below) doesn't need touching
+            function flashTmuxTopLeft(text, holdMs = 5000) {
+                showTermEvent("update", text.split("\n"), holdMs);
+            }
+            function clearTmuxTopLeftFlash() {
+                clearTermEvent();
+            }
+
+            // ── music panel ────────────────────────────────────────────────
+            // manages the top-right panel: album art background, track info,
+            // and lyrics (line-synced or word-synced).
+
+            let lastMusicState = { title: "—", artist: "", playing: false, duration: 0, position: 0 };
+            let lyricsData = { synced_lines: [], synced_words: [], plain_lines: [] };
+            let lyricsAnimFrame = null;
+
+            function setMusicArt(artUrl) {
+                const bg = $("tmux-music-bg-art");
+                if (!bg) return;
+                if (artUrl) {
+                    bg.style.backgroundImage = `url('${artUrl}')`;
+                    $("tmux-topright")?.classList.remove("no-art");
+                } else {
+                    bg.style.backgroundImage = "";
+                    $("tmux-topright")?.classList.add("no-art");
+                }
+            }
+
+            function setMusicVideo(videoUrl) {
+                const vid = $("tmux-music-bg-video");
+                if (!vid) return;
+                if (videoUrl) {
+                    vid.src = videoUrl;
+                    vid.classList.add("active");
+                    // dim the art when video is active
+                    const bg = $("tmux-music-bg-art");
+                    if (bg) bg.style.opacity = "0";
+                } else {
+                    vid.classList.remove("active");
+                    vid.removeAttribute("src");
+                    const bg = $("tmux-music-bg-art");
+                    if (bg) bg.style.opacity = "";
+                }
+            }
+
+            // ── lyrics render ──────────────────────────────────────────────
+            // renders up to LYRIC_CONTEXT_ABOVE lines before + BELOW lines
+            // after the active line. with word-sync, the active line shows
+            // individual words highlighted as they're sung.
+            const LYRIC_CONTEXT_ABOVE = 2;
+            const LYRIC_CONTEXT_BELOW = 2;
+
+            function _elapsedSeconds() {
+                const m = lastMusicState;
+                if (!m.playing) return m.position;
+                return m.position + (performance.now() - (m._updatedAt || performance.now())) / 1000;
+            }
+
+            function _activeLineIndex(elapsed) {
+                const lines = lyricsData.synced_lines;
+                if (!lines.length) return -1;
+                let idx = -1;
+                for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].time <= elapsed) idx = i;
+                    else break;
+                }
+                return idx;
+            }
+
+            function _renderLyricsDOM() {
+                const box = $("tmux-lyrics-box");
+                if (!box) return;
+
+                const elapsed = _elapsedSeconds();
+                const lines   = lyricsData.synced_lines;
+                const words   = lyricsData.synced_words;
+                const plain   = lyricsData.plain_lines;
+
+                // pick what to display
+                let displayLines = [];
+                let activeIdx = -1;
+                let hasTiming = false;
+
+                if (lines.length) {
+                    hasTiming = true;
+                    activeIdx = _activeLineIndex(elapsed);
+                    // window of lines to show
+                    const start = Math.max(0, activeIdx - LYRIC_CONTEXT_ABOVE);
+                    const end   = Math.min(lines.length - 1, (activeIdx < 0 ? LYRIC_CONTEXT_BELOW - 1 : activeIdx) + LYRIC_CONTEXT_BELOW);
+                    for (let i = start; i <= end; i++) {
+                        displayLines.push({ idx: i, text: lines[i].text, time: lines[i].time });
+                    }
+                } else if (plain.length) {
+                    // plain-only: scroll slowly based on track position/duration
+                    const dur  = lastMusicState.duration || 180;
+                    const prog = Math.min(1, Math.max(0, elapsed / dur));
+                    const midLine = Math.floor(prog * plain.length);
+                    const start   = Math.max(0, midLine - LYRIC_CONTEXT_ABOVE);
+                    const end     = Math.min(plain.length - 1, midLine + LYRIC_CONTEXT_BELOW);
+                    for (let i = start; i <= end; i++) {
+                        displayLines.push({ idx: i, text: plain[i], time: null });
+                    }
+                    activeIdx = midLine;
+                }
+
+                if (!displayLines.length) {
+                    box.innerHTML = "";
+                    return;
+                }
+
+                // rebuild DOM only when active line or content changes
+                const cacheKey = displayLines.map(l => l.idx).join(",") + "|" + activeIdx;
+                if (box.dataset.cacheKey === cacheKey && !words.length) return;
+                box.dataset.cacheKey = cacheKey;
+                box.innerHTML = "";
+
+                for (const dl of displayLines) {
+                    const lineEl = document.createElement("div");
+                    lineEl.className = "tmux-lyric-line";
+                    lineEl.dataset.lineIdx = String(dl.idx);
+
+                    if (dl.idx === activeIdx) {
+                        lineEl.classList.add("active");
+                    } else if (dl.idx === activeIdx + 1) {
+                        lineEl.classList.add("next");
+                    }
+
+                    if (dl.idx === activeIdx && words.length && dl.text) {
+                        // build word spans for the active line
+                        // match words from synced_words that fall within this line's time window
+                        const lineStart = dl.time;
+                        const nextLine  = lines[dl.idx + 1];
+                        const lineEnd   = nextLine ? nextLine.time : Infinity;
+                        const lineWords = words.filter(w => w.time >= lineStart && w.time < lineEnd);
+
+                        if (lineWords.length) {
+                            for (const w of lineWords) {
+                                const span = document.createElement("span");
+                                span.className = "tmux-lyric-word";
+                                span.dataset.wordTime = String(w.time);
+                                span.dataset.wordEnd  = String(w.end ?? w.time + 0.3);
+                                span.textContent = w.word + " ";
+                                if (elapsed >= w.time) span.classList.add("sung");
+                                lineEl.appendChild(span);
+                            }
+                        } else {
+                            lineEl.textContent = dl.text;
+                        }
+                    } else {
+                        lineEl.textContent = dl.text || "  ";
+                    }
+
+                    box.appendChild(lineEl);
+                }
+            }
+
+            function _updateWordHighlights() {
+                // update .sung class on word spans without rebuilding the DOM
+                const box = $("tmux-lyrics-box");
+                if (!box || !lyricsData.synced_words.length) return;
+                const elapsed = _elapsedSeconds();
+                box.querySelectorAll(".tmux-lyric-word").forEach(span => {
+                    const t = parseFloat(span.dataset.wordTime || "0");
+                    if (elapsed >= t) span.classList.add("sung");
+                    else span.classList.remove("sung");
+                });
+            }
+
+            function _lyricsLoop() {
+                _renderLyricsDOM();
+                _updateWordHighlights();
+                if (lyricsData.synced_lines.length || lyricsData.synced_words.length) {
+                    lyricsAnimFrame = requestAnimationFrame(_lyricsLoop);
+                }
+            }
+
+            function startLyricsLoop() {
+                if (lyricsAnimFrame) cancelAnimationFrame(lyricsAnimFrame);
+                lyricsAnimFrame = requestAnimationFrame(_lyricsLoop);
+            }
+
+            function clearLyricsPanel() {
+                lyricsData = { synced_lines: [], synced_words: [], plain_lines: [] };
+                if (lyricsAnimFrame) cancelAnimationFrame(lyricsAnimFrame);
+                lyricsAnimFrame = null;
+                const box = $("tmux-lyrics-box");
+                if (box) { box.innerHTML = ""; box.dataset.cacheKey = ""; }
+            }
+
+            function applyLyrics(msg) {
+                if (!msg.found) {
+                    clearLyricsPanel();
+                    return;
+                }
+                lyricsData = {
+                    synced_lines: msg.synced_lines || [],
+                    synced_words: msg.synced_words || [],
+                    plain_lines:  msg.plain_lines  || msg.lines || [],
+                };
+                startLyricsLoop();
+            }
+
+            // ── renderTmuxMusic: called on every music state update ────────
+            function renderTmuxMusic(title, artist, playing, duration = 0, position = 0) {
+                // clear lyrics on track change
+                if (lastMusicState.title !== "—" && lastMusicState.title !== title) {
+                    clearLyricsPanel();
+                    // also clear the old topleft lyrics panel if it was showing
+                    clearLyrics();
+                    // drop the previous track's cached mv immediately so the
+                    // panel doesn't show a stale video under the new song —
+                    // ytmusic_bridge will push a fresh music_video event once
+                    // (if) the new track's video finishes downloading
+                    setMusicVideo(null);
+                }
+                lastMusicState = {
+                    title, artist, playing,
+                    duration: Number(duration) || 0,
+                    position: Number(position) || 0,
+                    _updatedAt: performance.now(),
+                };
+
+                // track info
+                const trackEl  = $("tmux-music-trackname");
+                const artistEl = $("tmux-music-artistname");
+                const statusEl = $("tmux-music-playstatus");
+                const titleBar = $("tmux-music-title-bar");
+                if (trackEl)  trackEl.textContent  = title  || "—";
+                if (artistEl) artistEl.textContent  = artist ? `— ${artist}` : "";
+                if (statusEl) statusEl.textContent  = playing ? "▶" : "⏸";
+                if (titleBar) titleBar.textContent  = title && title !== "—" ? "now playing" : "music";
+
+                // keep plain lyrics scrolling even if we only have plain text
+                if (lyricsData.plain_lines.length && !lyricsData.synced_lines.length) {
+                    _renderLyricsDOM();
+                }
+            }
+
+            const ttsPopupEl = $("tts-popup");
+            const ttsPopupText = $("tts-popup-text");
+            // tts text is driven entirely by tts_state — "generating" means the
+            // model is working but no audio yet (stay quiet), "speaking" means
+            // audio is actually going out to the speaker (show text). it only
+            // shows and updates while speaking is true, and hides/clears the
+            // instant speaking flips false. no fixed-duration timers.
+            function showTtsPopup(text) {
+                if (!ttsPopupEl || !text) return;
+                ttsPopupText.textContent = text;
+                ttsPopupEl.classList.add("vis");
+                flashTmuxTopLeft(`speaking:\n${text}`, null);
+            }
+            function hideTtsPopup() {
+                if (!ttsPopupEl) return;
+                ttsPopupEl.classList.remove("vis");
+                clearTmuxTopLeftFlash();
+            }
+
+            let tmuxCenterTimeout = null;
+            let tmuxIdleHTML = '';
+            function setTmuxCenter(text, holdMs) {
+                const el = $("tmux-center-body");
+                if (!el) return;
+                el.textContent = text;
+                if (tmuxCenterTimeout) clearTimeout(tmuxCenterTimeout);
+                if (holdMs) {
+                    tmuxCenterTimeout = setTimeout(() => {
+                        el.innerHTML = tmuxIdleHTML;
+                        tmuxCenterTimeout = null;
+                    }, holdMs);
+                }
+            }
+
+            const TMUX_CHAT_MAX = 8;
+            function tmuxAddChat(user, text, badges = [], emotes = []) {
+                const body = $("tmux-chat-body");
+                if (!body) return;
+                const badgeHtml = (badges || [])
+                    .map(b => `<img class="chat-badge" src="${b.url}" alt="" style="height:1em;vertical-align:middle;margin-right:3px;" />`)
+                    .join("");
+                const line = document.createElement("div");
+                line.className = "tmux-chat-line";
+                line.innerHTML = `<span class="u">${badgeHtml}${escapeHtml(user)}:</span>${renderChatText(text, emotes)}`;
+                body.appendChild(line);
+                while (body.children.length > TMUX_CHAT_MAX) body.removeChild(body.firstChild);
+            }
+
+            function renderTmuxExtra(text) {
+                const el = $("tmux-extra-body");
+                if (el && text) el.textContent = text;
+            }
+
+            let tmuxLastStatus = "", tmuxLastMessage = "";
+            let tmuxStatRight = { uptime: "…", followers: null };
+
+            function renderTmuxStatusbar() {
+                const left  = $("tmux-statusbar-left");
+                const right = $("tmux-statusbar-right");
+                if (!left || !right) return;
+
+                // left: message if set, otherwise stream status
+                left.textContent = tmuxLastMessage || tmuxLastStatus || "—";
+
+                // right: status · uptime · followers
+                const parts = [];
+                if (tmuxLastStatus) parts.push(tmuxLastStatus);
+                if (tmuxStatRight.uptime && tmuxStatRight.uptime !== "…") parts.push(tmuxStatRight.uptime);
+                if (tmuxStatRight.followers != null) parts.push(`${tmuxStatRight.followers} flwrs`);
+                right.textContent = parts.join("  ·  ");
+            }
+
+            function escapeHtml(str) {
+                const d = document.createElement('div');
+                d.textContent = str;
+                return d.innerHTML;
+            }
+
+            // ── 7TV emote support ─────────────────────────────────────────
+            // loads channel + global emotes from 7tv's v3 API on init,
+            // refreshes every 10 minutes. emote names map to CDN image urls.
+            // uses the channel name from ?channel= URL param or OVERLAY_CHANNEL.
+            const sevenTvEmotes = new Map(); // name → url
+
+            async function load7tvGlobalEmotes() {
+                try {
+                    const res = await fetch("https://7tv.io/v3/emote-sets/global");
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    for (const e of (data.emotes || [])) {
+                        const host = e.data?.host;
+                        if (!host) continue;
+                        const file = host.files?.find(f => f.format === "WEBP" && f.name === "1x.webp")
+                            ?? host.files?.[0];
+                        if (file) sevenTvEmotes.set(e.name, `https:${host.url}/${file.name}`);
+                    }
+                } catch {}
+            }
+
+            async function load7tvChannelEmotes(channelLogin) {
+                if (!channelLogin) return;
+                // Strategy: v2 API accepts login names directly and returns
+                // a simple emote list. If that fails, fall back to the v3
+                // user search endpoint to resolve the 7TV user id, then fetch
+                // their active emote set.
+                try {
+                    const v2 = await fetch(`https://api.7tv.app/v2/users/${channelLogin}/emotes`);
+                    if (v2.ok) {
+                        const list = await v2.json();
+                        for (const e of (list || [])) {
+                            // v2 urls: [[size, url], ...]
+                            const url = e.urls?.[0]?.[1];
+                            if (url && e.name) sevenTvEmotes.set(e.name, url);
+                        }
+                        return;
+                    }
+                } catch {}
+                // v2 failed — try v3 search to get numeric id
+                try {
+                    const search = await fetch(`https://7tv.io/v3/users?query=${encodeURIComponent(channelLogin)}&limit=5`);
+                    if (!search.ok) return;
+                    const results = await search.json();
+                    const users = Array.isArray(results) ? results : results.users || [];
+                    const match = users.find(u =>
+                        (u.connections || []).some(c => c.platform === "TWITCH" && c.username?.toLowerCase() === channelLogin.toLowerCase())
+                    );
+                    if (!match) return;
+                    const setRes = await fetch(`https://7tv.io/v3/emote-sets/${match.emote_set?.id || match.style?.active_emote_set_id}`);
+                    if (!setRes.ok) return;
+                    const setData = await setRes.json();
+                    for (const e of (setData.emotes || [])) {
+                        const host = e.data?.host;
+                        if (!host) continue;
+                        const file = host.files?.find(f => f.format === "WEBP" && f.name === "1x.webp") ?? host.files?.[0];
+                        if (file) sevenTvEmotes.set(e.name, `https:${host.url}/${file.name}`);
+                    }
+                } catch {}
+            }
+
+            async function init7tv() {
+                const ch = window.OVERLAY_CHANNEL || "";
+                await Promise.all([load7tvGlobalEmotes(), load7tvChannelEmotes(ch)]);
+            }
+
+            // refresh every 10 min
+            init7tv().then(() => setInterval(init7tv, 10 * 60 * 1000));
+
+            // renders a chat message, substituting Twitch emotes (by position)
+            // and then 7TV emotes (by name-matching remaining words)
+            function renderChatText(text, emotes) {
+                // first pass: apply Twitch emotes by character position
+                let segments = []; // {text, isEmote, url, name}
+                const sorted = emotes ? [...emotes].sort((a, b) => a.start - b.start) : [];
+                let cursor = 0;
+                for (const e of sorted) {
+                    if (e.start < cursor) continue;
+                    if (e.start > cursor) segments.push({ text: text.slice(cursor, e.start), isEmote: false });
+                    segments.push({ text: e.name, isEmote: true, url: e.url, name: e.name });
+                    cursor = e.end + 1;
+                }
+                if (cursor < text.length) segments.push({ text: text.slice(cursor), isEmote: false });
+
+                // second pass: within plain-text segments, split on words and
+                // substitute any word matching a 7TV emote
+                let out = "";
+                for (const seg of segments) {
+                    if (seg.isEmote) {
+                        out += `<img class="chat-emote" src="${seg.url}" alt="${escapeHtml(seg.name)}" title="${escapeHtml(seg.name)}" />`;
+                        continue;
+                    }
+                    // split preserving spaces so layout isn't squished
+                    const words = seg.text.split(/(\s+)/);
+                    for (const word of words) {
+                        const emoteUrl = sevenTvEmotes.get(word);
+                        if (emoteUrl) {
+                            out += `<img class="chat-emote" src="${emoteUrl}" alt="${escapeHtml(word)}" title="${escapeHtml(word)} [7tv]" />`;
+                        } else {
+                            out += escapeHtml(word);
+                        }
+                    }
+                }
+                return out;
+            }
+
+            function add(user, text, color = "", badges = [], emotes = []) {
+                const msgEl = document.createElement('div');
+                msgEl.className = 'chat-message sketched-box';
+                const rot = (Math.random() * 4 - 2).toFixed(1);
+                msgEl.style.setProperty('--rot', `${rot}deg`);
+
+                const badgeHtml = (badges || [])
+                    .map(b => `<img class="chat-badge" src="${b.url}" alt="${escapeHtml(b.name)}" title="${escapeHtml(b.name)}" />`)
+                    .join("");
+                const nameStyle = color ? ` style="color:${color}; border-color:${color};"` : "";
+                const bodyHtml = renderChatText(text, emotes);
+
+                msgEl.innerHTML = `
+                    <span class="chat-username-row">
+                        ${badgeHtml}
+                        <span class="chat-username"${nameStyle}>${escapeHtml(user)}</span>
+                    </span>
+                    <div class="chat-text">${bodyHtml}</div>`;
+                chatContainer.appendChild(msgEl);
+                tmuxAddChat(user, text, badges, emotes);
+                setTimeout(() => {
+                    msgEl.classList.add('chat-fade-out');
+                    setTimeout(() => msgEl.remove(), 600);
+                }, 7000);
+            }
+
+            // --- CIPHER IMPLEMENTATION ---
+            const cipherSymbols = ['□', '■', '▣', '▲', '▼', '▙', '▚', '▛', '▜', '●'];
+            const charMap = {
+                'a':1, 'b':2, 'c':3, 'd':4, 'e':5, 'f':6, 'g':7, 'h':8, 'i':9, 'j':10,
+                'k':11, 'l':12, 'm':13, 'n':14, 'o':15, 'p':16, 'q':17, 'r':18, 's':19, 't':20,
+                'u':21, 'v':22, 'w':23, 'x':24, 'y':25, 'z':26,
+                '0':27, '1':28, '2':29, '3':30, '4':31, '5':32, '6':33, '7':34, '8':35, '9':36,
+                '!':37, '@':38, '#':39, '$':40, '%':41, '^':42, '&':43, '*':44, '(':45, ')':46,
+                '-':47, '+':48, '=':49, '_':50, '[':51, ']':52, '{':53, '}':54, '\\':55, '|':56,
+                ':':57, ';':58, "'":59, '"':60, '<':61, '>':62, ',':63, '.':64, '/':65, '?':66,
+                '`':67, '~':68, ' ': 0 // Fixed to zero!
+            };
+
+            function encodeCipher(text) {
+                let row1 = "";
+                let row2 = "";
+                const lower = text.toLowerCase();
+                
+                for (let i = 0; i < lower.length; i++) {
+                    let char = lower[i];
+                    let val = charMap[char];
+                    if (val === undefined) val = 96; // fallback
+                    
+                    let tens = Math.floor(val / 10);
+                    let ones = val % 10;
+                    
+                    row1 += cipherSymbols[tens] || cipherSymbols[0];
+                    row2 += cipherSymbols[ones] || cipherSymbols[0];
+                }
+                
+                return `<div class="cipher-wrap">
+                            <div class="cipher-row">${row1}</div>
+                            <div class="cipher-row">${row2}</div>
+                        </div>`;
+            }
+
+            // --- STATUS TOP BAR (red, status only) ---
+            let tbTimeout = null;
+            const topBar = $("top-bar");
+            const tbCipher = $("tb-cipher");
+            const tbText = $("tb-text");
+
+            function showTopBar(type, message) {
+                if (tbTimeout) clearTimeout(tbTimeout);
+
+                if (!message) {
+                    topBar.classList.remove("vis");
+                    return;
+                }
+
+                tbCipher.innerHTML = encodeCipher("broadcast status");
+                tbText.textContent = message;
+                topBar.className = `vis ${type}`;
+
+                tmuxLastStatus = message || "";
+                renderTmuxStatusbar();
+
+                tbTimeout = setTimeout(() => {
+                    topBar.classList.remove("vis");
+                }, 5000);
+            }
+
+            // --- MESSAGE POST-IT (top-right corner, stays, fades after a while) ---
+            const postit = $("postit");
+            const postitText = $("postit-text");
+            let postitTimeout = null;
+
+            function setMessage(val) {
+                if (postitTimeout) clearTimeout(postitTimeout);
+                if (!val) {
+                    postit.classList.remove("vis", "faded");
+                    tmuxLastMessage = "";
+                    renderTmuxStatusbar();
+                    return;
+                }
+                postitText.textContent = val;
+                postit.classList.remove("faded");
+                postit.classList.add("vis");
+                postitTimeout = setTimeout(() => {
+                    postit.classList.add("faded");
+                }, 15000);
+                tmuxLastMessage = val;
+                renderTmuxStatusbar();
+            }
+
+        let lastArtKey = "";
+        function loadArt() {
+            const url = "http://localhost:8878/art.png?t=" + Date.now();
+            const img = new Image();
+            img.onload = () => {
+                albumArt.src = url;
+                albumArt.style.display = "block";
+                setMusicArt(url);
+            };
+            img.onerror = () => {
+                albumArt.style.display = "none";
+                setMusicArt(null);
+            };
+            img.src = url;
+        }
+
+        function setMusic(title, artist, playing, duration = 0, position = 0) {
+            mtitle.textContent = title || "—";
+            martist.textContent = artist || "";
+            mlbl.textContent = "DETECTED AUDIO";
+            const key = `${title}::${artist}`;
+            if (key !== lastArtKey) {
+                lastArtKey = key;
+                loadArt();
+            }
+            if (playing) music.classList.remove("pau");
+            else music.classList.add("pau");
+            music.classList.add("vis");
+            renderTmuxMusic(title, artist, playing, duration, position);
+        }
+
+            // --- FLAGS OVERLAY ---
+            // decomposes a count into denominations of 50/25/10/5/1, matching
+            // how they should be shown next to a username (greedy, biggest first)
+            function decomposeFlags(n) {
+                const denoms = [50, 25, 10, 5, 1];
+                const out = [];
+                for (const d of denoms) {
+                    while (n >= d) { out.push(d); n -= d; }
+                }
+                return out;
+            }
+
+            let flagsTimeout = null;
+            function showFlagsOverlay(user, delta, board) {
+                const overlay = $("flags-overlay");
+                const deltaEl = $("flags-delta");
+                const listEl = $("flags-list");
+                if (!overlay || !deltaEl || !listEl) return;
+
+                deltaEl.textContent = delta > 0
+                    ? `${user} gained a flag!`
+                    : delta < 0
+                        ? `${user} lost a flag...`
+                        : `${user}`;
+
+                listEl.innerHTML = "";
+                (board || []).slice(0, 12).forEach(entry => {
+                    const row = document.createElement("div");
+                    row.className = "flags-row" + (entry.user.toLowerCase() === user.toLowerCase() ? " me" : "");
+                    const groups = decomposeFlags(entry.count)
+                        .map(d => `<span>${d}</span>`)
+                        .join("");
+                    row.innerHTML = `<span class="fr-name">${escapeHtml(entry.user)}</span><span class="fr-groups">${groups}</span>`;
+                    listEl.appendChild(row);
+                });
+
+                if (flagsTimeout) clearTimeout(flagsTimeout);
+                overlay.classList.add("vis");
+                flagsTimeout = setTimeout(() => overlay.classList.remove("vis"), 5000);
+            }
+
+            const ALERT_DUR = 6000;
+            const ALERT_TYPES = {
+                sub: { label: "new subscriber" },
+                resub: { label: "resubscribed" },
+                bits: { label: "cheered bits" }
+            };
+
+            function showAlert(type, message, sub = "") {
+                const def = ALERT_TYPES[type] || { label: type };
+                const el = document.createElement("div");
+                el.className = "alert sketched-box";
+                el.style.setProperty("--dur", ALERT_DUR + "ms");
+                
+                const cipherText = encodeCipher(def.label);
+
+                el.innerHTML = `
+                <div class="sketched-content alert-body">
+                    <span class="alert-type">${cipherText}</span>
+                    <span class="alert-msg">${message}</span>
+                    ${sub ? `<span class="alert-sub">${sub}</span>` : ""}
+                </div>`;
+                
+                alertsEl.appendChild(el);
+                setTmuxCenter(`${def.label} — ${message}${sub ? " (" + sub + ")" : ""}`, ALERT_DUR);
+                
+                setTimeout(() => {
+                    el.addEventListener("animationend", (ev) => {
+                        if (ev.animationName === "alertOut") el.remove();
+                    }, { once: true });
+                    setTimeout(() => el.remove(), 700);
+                }, ALERT_DUR);
+            }
+
+            // --- FOLLOW / RAID TOP BANNER ---
+            const topAlertsEl = $("top-alerts");
+            const TOP_ALERT_DUR = 6000;
+
+            function showTopAlert(type, user, sub = "") {
+                const message = type === "raid" ? `${user} raided!` : `${user} followed!`;
+                const el = document.createElement("div");
+                el.className = `top-alert sketched-box ${type}`;
+                el.style.setProperty("--dur", TOP_ALERT_DUR + "ms");
+                el.innerHTML = `
+                    <span class="top-alert-label">${message}</span>
+                    ${sub ? `<span class="top-alert-name">${sub}</span>` : ""}
+                `;
+                topAlertsEl.appendChild(el);
+                setTmuxCenter(`${message}${sub ? " — " + sub : ""}`, TOP_ALERT_DUR);
+                setTimeout(() => {
+                    el.addEventListener("animationend", (ev) => {
+                        if (ev.animationName === "topAlertOut") el.remove();
+                    }, { once: true });
+                    setTimeout(() => el.remove(), 700);
+                }, TOP_ALERT_DUR);
+            }
+
+            // --- TEST HOOKS (open console and run, e.g. testFollow("someuser")) ---
+            window.testFollow = (user = "test_user") => { showTopAlert("follow", user); flashTmuxTopLeft(`${user} followed!`); };
+            window.testRaid = (user = "test_user", viewers = 42) => {
+                showTopAlert("raid", user, `${viewers} raiders`);
+                flashTmuxTopLeft(`${user} raided!\n${viewers} raiders`);
+            };
+            window.testTts = (text = "hey chat, thanks for hanging out") => showTtsPopup(text);
+            window.testFlags = (user = "test_user", delta = 1) => showFlagsOverlay(user, delta, [
+                { user: "test_user", count: 6 },
+                { user: "someone_else", count: 63 },
+                { user: "chatter", count: 1 },
+            ]);
+            window.testAlert = (kind = "sub", user = "test_user", sub = "tier 1") => {
+                showAlert(kind, user, sub);
+                const ALERT_TERM_TITLES = { sub: "new sub!", resub: "resub!", bits: "cheer!" };
+                showTermEvent(ALERT_TERM_TITLES[kind] || kind, [user, sub].filter(Boolean), 6000);
+            };
+            window.testCheckin = (user = "test_user", count = 3) =>
+                showTermEvent("check-in", [`${user}:`, `checked in ${count} time(s)!`], 6000);
+            window.testLyrics = () =>
+                showTermEvent("lyrics: test song", ["never gonna give you up", "never gonna let you down"], 10000);
+
+            // --- CHAT MODE (just chatting / starting soon / ending soon) ---
+            const modeNote = $("mode-note");
+            const modeNoteText = $("mode-note-text");
+            const statsWin = $("stats-win");
+            const MODE_LABELS = {
+                "just chatting": { text: "just<br>chatting", cls: "" },
+                "starting soon": { text: "starting<br>soon", cls: "starting" },
+                "ending soon":   { text: "ending<br>soon", cls: "ending" },
+            };
+
+            function applyStatusMode(status) {
+                const key = (status || "").trim().toLowerCase();
+                const def = MODE_LABELS[key];
+                if (def) {
+                    chatContainer.classList.add("mode-chat");
+                    statsWin.classList.add("mode-chat");
+                    modeNoteText.innerHTML = `${def.text}<span class="note-accent"></span>`;
+                    modeNote.className = `sketched-box vis ${def.cls}`;
+                    tmuxLastStatus = def.text.replace("<br>", " ").toUpperCase();
+                } else {
+                    chatContainer.classList.remove("mode-chat");
+                    statsWin.classList.remove("mode-chat");
+                    modeNote.className = "sketched-box";
+                    tmuxLastStatus = "";
+                }
+                renderTmuxStatusbar();
+            }
+
+            // --- !status STATS WINDOW ---
+            let statsTimeout = null;
+            const lastStats = { cpu: "…", mem: "…", gpu: "…", wpm: "…", uptime: "…" };
+
+            function updateStats(s) {
+                Object.assign(lastStats, s);
+                $("st-cpu").textContent = lastStats.cpu;
+                $("st-mem").textContent = lastStats.mem;
+                $("st-gpu").textContent = lastStats.gpu;
+                $("st-wpm").textContent = lastStats.wpm;
+                $("st-uptime").textContent = lastStats.uptime;
+                if (lastStats.uptime) {
+                    tmuxStatRight.uptime = lastStats.uptime;
+                    renderTmuxStatusbar();
+                }
+                if (!termEventTimer && !lyricsState && currentPanel === "status") renderTermIdle();
+            }
+
+            function showStatsWin() {
+                if (statsTimeout) clearTimeout(statsTimeout);
+                statsWin.classList.add("vis");
+                statsTimeout = setTimeout(() => statsWin.classList.remove("vis"), 8000);
+            }
+
+            // --- WEBSOCKET CONNECTION ---
+            let ws, delay = 1000;
+            function connect() {
+                ws = new WebSocket("ws://localhost:8877");
+                ws.onopen = () => { delay = 1000; };
+                
+                ws.onmessage = (e) => {
+                    let msg;
+                    try { msg = JSON.parse(e.data); } catch { return; }
+
+                    if (msg.type === "init") {
+                        const s = msg.state || {};
+                        if (s.message) setMessage(s.message);
+                        if (s.status) applyStatusMode(s.status);
+                        if (s.stats) updateStats(s.stats);
+                        if (s.extra) renderTmuxExtra(s.extra);
+                        const tw = s.twitch || {};
+                        if (tw.followers != null) { tmuxStatRight.followers = tw.followers; renderTmuxStatusbar(); }
+                        const m = s.music || {};
+                        if (m.title && m.title !== "—") {
+                            setMusic(
+                                m.title, m.artist, m.playing, m.duration, m.position,
+                            );
+                            if (m.video_url) setMusicVideo(m.video_url);
+                        }
+                    } else if (msg.type === "extra") {
+                        renderTmuxExtra(msg.value);
+                    } else if (msg.type === "message") {
+                        setMessage(msg.value);
+                    } else if (msg.type === "chat") {
+                        add(msg.user, msg.text, msg.color || "", msg.badges || [], msg.emotes || []);
+                    }
+                    else if (msg.type === "music") {
+                        if (msg.title && msg.title !== "—") setMusic(
+                            msg.title, msg.artist, msg.playing, msg.duration, msg.position,
+                        );
+                    } else if (msg.type === "music_video") {
+                        setMusicVideo(msg.url);
+                    } else if (msg.type === "status") {
+                        showTopBar("red", msg.value);
+                        applyStatusMode(msg.value);
+                        showTermEvent("!status", [msg.value], 5000);
+                    } else if (msg.type === "stats") {
+                        updateStats(msg);
+                    } else if (msg.type === "show_stats") {
+                        showStatsWin();
+                    } else if (msg.type === "alert") {
+                        showAlert(msg.alert, msg.message || "", msg.sub || "");
+                        const ALERT_TERM_TITLES = { sub: "new sub!", resub: "resub!", bits: "cheer!" };
+                        const label = ALERT_TERM_TITLES[msg.alert] || msg.alert;
+                        const lines = [msg.message || ""];
+                        if (msg.sub) lines.push(msg.sub);
+                        showTermEvent(label, lines, 6000);
+                    } else if (msg.type === "follow") {
+                        showTopAlert("follow", msg.user);
+                        flashTmuxTopLeft(`${msg.user} followed!`);
+                    } else if (msg.type === "raid") {
+                        showTopAlert("raid", msg.user, `${msg.viewers || 0} raiders`);
+                        flashTmuxTopLeft(`${msg.user} raided!\n${msg.viewers || 0} raiders`);
+                    } else if (msg.type === "redeem_alert") {
+                        showTermEvent(msg.reward || "redeem", [`${msg.user}:`, msg.message || ""], 6000);
+                    } else if (msg.type === "lyrics") {
+                        applyLyrics(msg);
+                        // also show in the topleft terminal panel for !lyrics command
+                        if (msg.found) {
+                            const lines = msg.synced_lines?.map(l => l.text).filter(Boolean)
+                                       || msg.plain_lines
+                                       || msg.lines || [];
+                            if (lines.length) showLyrics(
+                                msg.title, msg.artist, lines,
+                                lastMusicState.duration, lastMusicState.position, lastMusicState.playing,
+                                msg.synced_lines || [],
+                            );
+                        } else {
+                            showTermEvent("lyrics", [msg.reason || "not found"], 4000);
+                        }
+                    } else if (msg.type === "twitch_stats") {
+                        const tw = msg.twitch || {};
+                        if (tw.followers != null) {
+                            tmuxStatRight.followers = tw.followers;
+                            renderTmuxStatusbar();
+                        }
+                    } else if (msg.type === "flags_event") {
+                        showFlagsOverlay(msg.user, msg.delta, msg.board || []);
+                    } else if (msg.type === "panel") {
+                        setTermPanel(msg.panel);
+                    } else if (msg.type === "tts_say") {
+                        showTtsPopup(msg.text);
+                    } else if (msg.type === "tts_state") {
+                        const tts = msg.tts || {};
+                        if (tts.speaking && tts.current) showTtsPopup(tts.current);
+                        else hideTtsPopup();
+                    }
+                };
+                
+                ws.onclose = () => {
+                    setTimeout(connect, delay);
+                    delay = Math.min(delay * 1.5, 8000);
+                };
+                ws.onerror = () => ws.close();
+            }
+            
+            // ambient monochrome fx — flash / noise / wave, fired occasionally
+            const tmuxFxEl = $("tmux-fx");
+            function triggerFx(kind) {
+                if (!tmuxFxEl) return;
+                kind = kind || ["flash", "noise", "wave"][Math.floor(Math.random() * 3)];
+                tmuxFxEl.className = kind;
+                setTimeout(() => { tmuxFxEl.className = ""; }, 1000);
+            }
+            function scheduleFx() {
+                setTimeout(() => {
+                    triggerFx();
+                    scheduleFx();
+                }, 15000 + Math.random() * 25000);
+            }
+            scheduleFx();
+            window.testFx = triggerFx;
+
+            // Initialization
+            connect();
+            loadArt();
+            renderTmuxTopLeft();
+            renderTmuxStatusbar();
+
+            // Test hooks: press F to fire a test follow, G to fire a test raid
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "f" || e.key === "F") window.testFollow();
+                if (e.key === "g" || e.key === "G") window.testRaid();
+                if (e.key === "t" || e.key === "T") window.testTts();
+                if (e.key === "s" || e.key === "S") window.testAlert("sub");
+                if (e.key === "b" || e.key === "B") window.testAlert("bits", "test_user", "250 bits");
+                if (e.key === "c" || e.key === "C") window.testCheckin();
+                if (e.key === "l" || e.key === "L") window.testLyrics();
+                if (e.key === "x" || e.key === "X") window.testFx();
+                if (e.key === "v" || e.key === "V") window.testFlags();
+            });
+        </script>
+    </body>
+</html>

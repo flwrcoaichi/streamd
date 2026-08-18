@@ -137,6 +137,31 @@ if HF_TOKEN:
     os.environ.setdefault("HF_TOKEN", HF_TOKEN)
     os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", HF_TOKEN)
 
+# ── YouTube Music (pear-desktop companion API + ytmusicapi search) ─────────
+# replaces the old WinRT/Spotify-adjacent media session tracking entirely.
+YTM_COMPANION_HOST = os.environ.get("YTM_COMPANION_HOST", "127.0.0.1")
+YTM_COMPANION_PORT = int(os.environ.get("YTM_COMPANION_PORT", "9863"))
+# Generated once via `python run.py --ytm-auth` (see ytmusic_bridge.py) and
+# then reused. This is pear-desktop's companion-server API token, NOT your
+# Google/YouTube credentials — it only grants control over the local app.
+YTM_COMPANION_TOKEN_PATH = BASE_DIR / "ytm_companion_token.json"
+YTM_COMPANION_APP_ID = os.environ.get("YTM_COMPANION_APP_ID", "streamd")
+
+# ytmusicapi auth file (browser-cookie based). Generate with:
+#   python -m ytmusicapi browser
+# and save the output here. Used for search / song-request lookups only —
+# playback state and transport controls go through the companion API above,
+# not through ytmusicapi (ytmusicapi has no live "now playing" concept).
+YTM_AUTH_HEADERS_PATH = pathlib.Path(
+    os.environ.get("YTM_AUTH_HEADERS_PATH", str(BASE_DIR / "ytm_headers_auth.json"))
+)
+
+# ── music video background cache ────────────────────────────────────────
+MV_CACHE_DIR = pathlib.Path(os.environ.get("STREAM_MV_CACHE_DIR", str(BASE_DIR / "mv_cache")))
+MV_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+MV_MAX_CACHE_BYTES = int(os.environ.get("MV_MAX_CACHE_BYTES", str(5 * 1024 * 1024 * 1024)))  # 5GB default
+MV_DOWNLOAD_ENABLED = str(os.environ.get("MV_DOWNLOAD_ENABLED", "True")).strip().lower() in ("true", "1", "yes", "t")
+
 # onnxruntime must do its first import on the main thread (windows dll quirk)
 try:
     import onnxruntime as onnxruntime_preloaded

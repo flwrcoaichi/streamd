@@ -15,7 +15,8 @@ from twitch_api import run_twitch_stats_thread, run_ad_schedule_thread, twitch_e
 from twitch_auth import get_twitch_user_token, run_twitch_auth_flow
 from discord_rpc import run_discord_rpc_thread
 from tts import run_tts_worker, run_hotkeys
-from chat_irc import run_stats_thread, run_music_thread, run_chat_thread, run_wpm_tracker
+from chat_irc import run_stats_thread, run_chat_thread, run_wpm_tracker
+from ytmusic_bridge import run_ytmusic_thread, run_companion_pairing_flow
 from http_server import start_http_server
 from ws_handler import ws_handler
 
@@ -42,7 +43,7 @@ async def main() -> None:
     log.info("log: %s", LOG_PATH)
     log.info("pngtuber dir: %s (set STREAM_PNGTUBER_DIR to override)", PNGTUBER_DIR)
 
-    for target in (run_stats_thread, run_music_thread, run_chat_thread, run_wpm_tracker,
+    for target in (run_stats_thread, run_ytmusic_thread, run_chat_thread, run_wpm_tracker,
                    run_tts_worker, run_hotkeys, run_twitch_stats_thread, run_discord_rpc_thread,
                    run_twitch_token_refresh_thread, run_ad_schedule_thread):
         threading.Thread(target=target, daemon=True, name=target.__name__).start()
@@ -60,5 +61,7 @@ async def main() -> None:
 if __name__ == "__main__":
     if "--auth" in sys.argv:
         run_twitch_auth_flow()
+    elif "--ytm-auth" in sys.argv:
+        run_companion_pairing_flow()
     else:
         asyncio.run(main())

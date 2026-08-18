@@ -24,7 +24,7 @@ class StreamState:
             "status": "starting soon",
             "message": "",
             "music": {"title": "—", "artist": "—", "playing": False,
-                      "duration": 0, "position": 0},
+                      "duration": 0, "position": 0, "video_url": None},
             "chat": [],
             "stats": {"cpu": "…", "mem": "…", "gpu": "…", "wpm": "…", "uptime": "…"},
             "scene": "live",
