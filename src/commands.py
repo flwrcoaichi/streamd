@@ -75,16 +75,6 @@ def save_commands(commands: dict) -> None:
     except Exception as e:
         log.warning("failed to save commands: %s", e)
 
-
-def load_deaths() -> dict:
-    if DEATHS_PATH.exists():
-        try:
-            return json.loads(DEATHS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
-
-
 def save_deaths(deaths: dict) -> None:
     try:
         DEATHS_PATH.write_text(json.dumps(deaths, indent=2), encoding="utf-8")
@@ -99,29 +89,6 @@ def load_deaths() -> dict:
         except Exception:
             pass
     return {}
-
-
-def save_deaths(deaths: dict) -> None:
-    try:
-        DEATHS_PATH.write_text(json.dumps(deaths, indent=2), encoding="utf-8")
-    except Exception as e:
-        log.warning("failed to save deaths: %s", e)
-
-
-def load_deaths() -> dict:
-    if DEATHS_PATH.exists():
-        try:
-            return json.loads(DEATHS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
-
-
-def save_deaths(deaths: dict) -> None:
-    try:
-        DEATHS_PATH.write_text(json.dumps(deaths, indent=2), encoding="utf-8")
-    except Exception as e:
-        log.warning("failed to save deaths: %s", e)
 
 
 # ── permissions ──────────────────────────────────────────────────────────
@@ -229,7 +196,7 @@ def _parse_ttml_words(ttml_text: str) -> list[dict]:
         log.debug("[lyrics] ttml parse error: %s", e)
         return words
 
-    def _t(attr: str) -> float | None:
+    def _t(attr: str | None) -> float | None:
         """convert HH:MM:SS.mmm or MM:SS.mmm or plain seconds to float."""
         if not attr:
             return None
