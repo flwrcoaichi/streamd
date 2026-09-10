@@ -126,7 +126,7 @@ class _YtmCompanion:
 
         while True:
             try:
-                log.info("[ytm] connecting to WebSocket at %s...", uri)
+                log.info("[ytm] connecting to WebSocket at %s", uri[:20] + "...")
                 async with websockets.connect(uri) as ws:
                     self.ws = ws
                     self.connected = True
@@ -135,6 +135,7 @@ class _YtmCompanion:
                     async for message in ws:
                         try:
                             data = json.loads(message)
+                            #log.info("[ytm] raw ws payload: %s", data)  # TEMP — remove after inspecting
                             _handle_state_update(data)
                         except Exception as parse_err:
                             log.warning("[ytm] failed to parse ws payload: %s", parse_err)
@@ -160,14 +161,84 @@ def _set_idle() -> None:
 def _handle_state_update(data: dict) -> None:
     global _last_title
 
+    msg_type = data.get("type")
+
+    if msg_type == "POSITION_CHANGED":
+        music = state.data.get("music")
+        if music and music.get("title") and music.get("title") != "—":
+            music["position"] = float(data.get("position") or 0)
+            broadcast_sync({"type": "music", **music})
+        return
+
+    if msg_type in ("PLAYER_INFO", "VIDEO_CHANGED"):
+        _apply_song_state(data)
+        return
+
+    # VOLUME_CHANGED, REPEAT_CHANGED, SHUFFLE_CHANGED, etc — ignore
+    return
+
+def _mv_find_real_video(title: str, artist: str) -> str | None:
+    """Searches YouTube proper for an actual music video / official video /
+    visualizer, skipping auto-generated '<Artist> - Topic' uploads (which
+    are just the same static album-art release clip). Returns a videoId or
+    None if nothing decent turned up."""
+    try:
+        import yt_dlp
+    except ImportError:
+        return None
+
+    queries = [
+        f"ytsearch5:{artist} {title} official music video",
+        f"ytsearch5:{artist} {title} official video",
+        f"ytsearch5:{artist} {title} official visualizer",
+    ]
+    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True, "extract_flat": "in_playlist"}
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        for q in queries:
+            try:
+                info = ydl.extract_info(q, download=False)
+            except Exception as e:
+                log.debug("[mv-cache] search failed for %r: %s", q, e)
+                continue
+            for entry in (info or {}).get("entries", []) or []:
+                uploader = (entry.get("uploader") or entry.get("channel") or "")
+                if uploader.strip().endswith("- Topic"):
+                    continue  # auto-generated audio-only channel, skip
+                vid = entry.get("id")
+                if vid:
+                    log.info("[mv-cache] found real video for %r - %r via %r: %s (%s)",
+                              artist, title, q, vid, uploader)
+                    return vid
+    return None
+
+def _apply_song_state(data: dict) -> None:
+    global _last_title
+
     from commands import fetch_and_broadcast_lyrics
 
-    # Parse payloads conforming to the /api/v1/song and /api/v1/ws structures
-    title = data.get("title") or ""
-    artist = data.get("artist") or ""
-    duration = float(data.get("songDuration") or 0)
-    position = float(data.get("elapsedSeconds") or 0)
-    playing = not data.get("isPaused", True)
+    song = data.get("song") or {}
+    title = song.get("title") or ""
+    artist = song.get("artist") or ""
+
+    def _as_float(value: object | None, default: float = 0.0) -> float:
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    duration = _as_float(song.get("songDuration"))
+    position = _as_float(
+        data.get("position"),
+        _as_float(song.get("elapsedSeconds")),
+    )
+    # PLAYER_INFO has top-level isPlaying; VIDEO_CHANGED only has song.isPaused
+    if "isPlaying" in data:
+        playing = bool(data.get("isPlaying"))
+    else:
+        playing = not song.get("isPaused", False)
 
     if not title:
         _set_idle()
@@ -180,23 +251,36 @@ def _handle_state_update(data: dict) -> None:
     if title != _last_title:
         _last_title = title
         write_atomic(BASE_DIR / "music", f"{title}\nby {artist}")
-        _fetch_and_cache_art(data)
+        _fetch_and_cache_art(song)
         fetch_and_broadcast_lyrics(artist, title)
 
-        video_id = data.get("videoId")
+        video_id = song.get("videoId")
+        media_type = song.get("mediaType", "")
         if MV_DOWNLOAD_ENABLED and video_id:
-            cached = _mv_path_for(video_id)
-            if cached.exists():
-                url = f"/mv-cache/{cached.name}"
-                state.data["music"]["video_url"] = url
-                broadcast_sync({"type": "music_video", "url": url})
-            else:
-                state.data["music"]["video_url"] = None
-                broadcast_sync({"type": "music_video", "url": None})
-                _mv_download(video_id, title, artist)
+            def _resolve_and_download(vid=video_id, mtype=media_type, t=title, a=artist):
+                target_id = vid
+                if mtype != "ORIGINAL_MUSIC_VIDEO":
+                    found = _mv_find_real_video(t, a)
+                    if found:
+                        target_id = found
+                    else:
+                        log.info("[mv-cache] no real MV found for %r - %r, skipping (would be static art)", a, t)
+                        return
+                cached = _mv_path_for(target_id)
+                if cached.exists():
+                    url = f"/mv-cache/{cached.name}"
+                    if state.data.get("music", {}).get("title") == t:
+                        state.data["music"]["video_url"] = url
+                        broadcast_sync({"type": "music_video", "url": url})
+                else:
+                    if state.data.get("music", {}).get("title") == t:
+                        state.data["music"]["video_url"] = None
+                        broadcast_sync({"type": "music_video", "url": None})
+                    _mv_download(target_id, t, a)
+
+            threading.Thread(target=_resolve_and_download, daemon=True, name="mv-resolve").start()
         else:
             state.data["music"]["video_url"] = None
-
 
 def _fetch_and_cache_art(data: dict) -> None:
     url = data.get("imageSrc")
@@ -290,6 +374,11 @@ def _mv_download(video_id: str, title: str, artist: str) -> None:
             "quiet": True,
             "no_warnings": True,
             "noplaylist": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"],
+                }
+            },
         }
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:

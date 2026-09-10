@@ -1,11 +1,14 @@
+import base64
 import json
 import random
 import re
 import threading
 import time
 import xml.etree.ElementTree as ET
+import urllib.parse
+import urllib.request
 
-from config import log, COMMANDS_PATH, CHAN
+from config import log, COMMANDS_PATH, CHAN, DEATHS_PATH
 from state import state
 from broadcast import broadcast_sync, send_chat
 from conditions import check_conditions
@@ -46,6 +49,11 @@ _DEFAULT_COMMANDS = {
         "enabled": True,
         "description": "show how many flags you have",
     },
+    "!death": {
+        "type": "builtin",
+        "enabled": True,
+        "description": "add or remove deaths (!death [amount])",
+    },
 }
 
 
@@ -66,6 +74,54 @@ def save_commands(commands: dict) -> None:
         COMMANDS_PATH.write_text(json.dumps(commands, indent=2), encoding="utf-8")
     except Exception as e:
         log.warning("failed to save commands: %s", e)
+
+
+def load_deaths() -> dict:
+    if DEATHS_PATH.exists():
+        try:
+            return json.loads(DEATHS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_deaths(deaths: dict) -> None:
+    try:
+        DEATHS_PATH.write_text(json.dumps(deaths, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning("failed to save deaths: %s", e)
+
+
+def load_deaths() -> dict:
+    if DEATHS_PATH.exists():
+        try:
+            return json.loads(DEATHS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_deaths(deaths: dict) -> None:
+    try:
+        DEATHS_PATH.write_text(json.dumps(deaths, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning("failed to save deaths: %s", e)
+
+
+def load_deaths() -> dict:
+    if DEATHS_PATH.exists():
+        try:
+            return json.loads(DEATHS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_deaths(deaths: dict) -> None:
+    try:
+        DEATHS_PATH.write_text(json.dumps(deaths, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning("failed to save deaths: %s", e)
 
 
 # ── permissions ──────────────────────────────────────────────────────────
@@ -210,12 +266,21 @@ def _parse_ttml_words(ttml_text: str) -> list[dict]:
     return words
 
 
+def _get_json(url: str, headers: dict[str, str] | None = None, timeout: float = 5) -> dict | list | None:
+    try:
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            if resp.status != 200:
+                return None
+            return json.loads(resp.read().decode("utf-8"))
+    except Exception as e:
+        log.debug("[lyrics] request failed for %s: %s", url.split("?", 1)[0], e)
+        return None
+
+
 def _fetch_lrclib(artist: str, title: str, duration: float | None = None) -> dict | None:
     """fetch from lrclib.net. returns the JSON dict or None.
     tries /api/get first (exact match) then /api/search as fallback."""
-    import urllib.parse
-    import urllib.request
-
     headers = {"User-Agent": "streamd/1.0 (github.com/streamd; contact via twitch)"}
 
     # primary: exact lookup
@@ -223,47 +288,82 @@ def _fetch_lrclib(artist: str, title: str, duration: float | None = None) -> dic
     if duration:
         params["duration"] = str(int(duration))
     url = "https://lrclib.net/api/get?" + urllib.parse.urlencode(params)
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            if resp.status == 200:
-                return json.loads(resp.read().decode("utf-8"))
-    except Exception as e:
-        log.debug("[lyrics] lrclib get failed: %s", e)
+    result = _get_json(url, headers)
+    if isinstance(result, dict):
+        return result
 
     # fallback: search
     search_url = "https://lrclib.net/api/search?" + urllib.parse.urlencode(
         {"track_name": title, "artist_name": artist}
     )
-    try:
-        req = urllib.request.Request(search_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            if resp.status == 200:
-                results = json.loads(resp.read().decode("utf-8"))
-                if results:
-                    return results[0]
-    except Exception as e:
-        log.debug("[lyrics] lrclib search failed: %s", e)
+    results = _get_json(search_url, headers)
+    if isinstance(results, list) and results:
+        return results[0]
 
     return None
+
+
+def _fetch_qqmusic(artist: str, title: str) -> dict | None:
+    """Fetch synced lyrics from QQ Music's public search and lyric endpoints."""
+    headers = {
+        "Referer": "https://y.qq.com/",
+        "User-Agent": "streamd/1.0",
+    }
+    search_url = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp?" + urllib.parse.urlencode({
+        "format": "json", "n": 5, "p": 1, "w": f"{title} {artist}",
+    })
+    search = _get_json(search_url, headers)
+    songs = search.get("data", {}).get("song", {}).get("list", []) if isinstance(search, dict) else []
+    if not songs:
+        return None
+
+    title_lower = re.sub(r"\s+", " ", title.casefold()).strip()
+    artist_lower = artist.casefold()
+    songs.sort(key=lambda song: (
+        title_lower not in song.get("songname", "").casefold(),
+        artist_lower not in " ".join(s.get("name", "") for s in song.get("singer", [])).casefold(),
+    ))
+    song_mid = songs[0].get("songmid")
+    if not song_mid:
+        return None
+
+    lyric_url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?" + urllib.parse.urlencode({
+        "songmid": song_mid, "format": "json", "nobase64": 1,
+        "platform": "yqq", "needNewCode": 0,
+    })
+    result = _get_json(lyric_url, headers)
+    if not isinstance(result, dict):
+        return None
+    lyric = result.get("lyric") or ""
+    if not lyric and result.get("lyric_enc"):
+        try:
+            lyric = base64.b64decode(result["lyric_enc"]).decode("utf-8")
+        except (ValueError, UnicodeDecodeError):
+            return None
+    return {"syncedLyrics": lyric} if lyric else None
+
+
+def _fetch_lyrics_ovh(artist: str, title: str) -> dict | None:
+    """Fetch plain lyrics from lyrics.ovh as the last-resort fallback."""
+    url = "https://api.lyrics.ovh/v1/" + "/".join(
+        urllib.parse.quote(part, safe="") for part in (artist, title)
+    )
+    result = _get_json(url, {"User-Agent": "streamd/1.0"})
+    lyrics = result.get("lyrics") if isinstance(result, dict) else None
+    return {"plainLyrics": lyrics} if isinstance(lyrics, str) and lyrics.strip() else None
 
 
 def _fetch_lrcmux(artist: str, title: str) -> dict | None:
     """fetch word-synced lyrics from lrcmux.dev.
     returns {lrc: str|None, ttml: str|None} or None on failure."""
-    import urllib.parse
-    import urllib.request
-
     headers = {"User-Agent": "streamd/1.0"}
     search_url = "https://lrcmux.dev/api/lyrics/search?" + urllib.parse.urlencode(
         {"track": title, "artist": artist}
     )
     try:
-        req = urllib.request.Request(search_url, headers=headers)
-        with urllib.request.urlopen(req, timeout=8) as resp:
-            if resp.status != 200:
-                return None
-            results = json.loads(resp.read().decode("utf-8"))
+        results = _get_json(search_url, headers)
+        if results is None:
+            return None
         # prefer word-synced results
         candidates = results.get("results", []) if isinstance(results, dict) else results
         if not candidates:
@@ -287,11 +387,8 @@ def _fetch_lrcmux(artist: str, title: str) -> dict | None:
             return None
 
         fetch_url = f"https://lrcmux.dev/api/lyrics/{lyric_id}"
-        req2 = urllib.request.Request(fetch_url, headers=headers)
-        with urllib.request.urlopen(req2, timeout=8) as resp2:
-            if resp2.status != 200:
-                return None
-            return json.loads(resp2.read().decode("utf-8"))
+        result = _get_json(fetch_url, headers)
+        return result if isinstance(result, dict) else None
     except Exception as e:
         log.debug("[lyrics] lrcmux failed: %s", e)
         return None
@@ -317,7 +414,7 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
         "synced_words": [],
     }
 
-    # --- try lrcmux first for word-level sync ---
+    # --- use providers from most useful sync data to broad plain-text coverage ---
     lrcmux_data = _fetch_lrcmux(artist, title)
     if lrcmux_data:
         ttml_text = lrcmux_data.get("ttml") or ""
@@ -360,6 +457,23 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
                 payload["plain_lines"] = cleaned
                 payload["found"] = True
                 log.info("[lyrics] got plain lyrics from lrclib for %s - %s", artist, title)
+
+    qq_data = _fetch_qqmusic(artist, title)
+    if qq_data and not payload["synced_lines"]:
+        lines = _parse_lrc(qq_data.get("syncedLyrics") or "")
+        if lines:
+            payload["synced_lines"] = lines
+            payload["plain_lines"] = [l["text"] for l in lines if l["text"]]
+            payload["found"] = True
+            log.info("[lyrics] got line-synced lyrics from qq music for %s - %s", artist, title)
+
+    ovh_data = _fetch_lyrics_ovh(artist, title)
+    if ovh_data and not payload["plain_lines"]:
+        cleaned = [line.rstrip() for line in ovh_data["plainLyrics"].splitlines()]
+        payload["plain_lines"] = [line for line in cleaned if line]
+        payload["found"] = bool(payload["plain_lines"])
+        if payload["found"]:
+            log.info("[lyrics] got plain lyrics from lyrics.ovh for %s - %s", artist, title)
 
     if not payload["found"]:
         payload["reason"] = "couldn't find lyrics for this one"
@@ -441,6 +555,32 @@ def dispatch_chat_command(user: str, text: str, badges: list | None = None) -> N
             from flags import get_flags
             count = get_flags(user)
             send_chat(f"{user} has {count} flag(s)!")
+        elif trigger == "!death":
+            deaths = state.data.setdefault("deaths", {})
+            category = state.data.get("twitch", {}).get("game_name", "").strip()
+            if not category:
+                send_chat("can't update deaths: no game category is active")
+                return
+
+            category_key = next(
+                (key for key in deaths if key.casefold() == category.casefold()),
+                category,
+            )
+            if arg.casefold() == "reset":
+                amount = None
+            else:
+                try:
+                    amount = int(arg) if arg else 1
+                except ValueError:
+                    send_chat("usage: !death [amount], e.g. !death 2 or !death -1")
+                    return
+
+            current = deaths.get(category_key, 0)
+            deaths[category_key] = 0 if amount is None else max(0, current + amount)
+            save_deaths(deaths)
+            count = deaths[category_key]
+            send_chat(f"deaths ({category_key}): {count}")
+            broadcast_sync({"type": "deaths", "deaths": deaths})
     elif ctype == "custom":
         response = cmd.get("response", "")
         if response:

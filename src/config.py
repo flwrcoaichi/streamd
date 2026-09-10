@@ -65,6 +65,7 @@ TYPEWRITER_DELAY = 0.04
 COMMANDS_PATH = BASE_DIR / "commands.json"
 REWARDS_PATH = BASE_DIR / "rewards.json"
 CHECKINS_PATH = BASE_DIR / "checkins.json"
+DEATHS_PATH = BASE_DIR / "deaths.json"
 REDEEMS_DIR = pathlib.Path(os.environ.get("STREAM_REDEEMS_DIR", str(BASE_DIR / "redeems")))
 REDEEMS_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -7,7 +7,7 @@ import websockets
 
 from config import log, WS_PORT, BASE_DIR, LOG_PATH, PNGTUBER_DIR
 from state import state
-from commands import load_commands
+from commands import load_commands, load_deaths
 from redeems import load_rewards, load_checkins
 from flags import load_flags
 from obs import obs_client_task
@@ -23,6 +23,8 @@ from ws_handler import ws_handler
 state.data["commands"] = load_commands()
 state.data["rewards"] = load_rewards()
 state.data["checkins"] = load_checkins()
+state.data["deaths"] = load_deaths()
+state.data["deaths"] = load_deaths()
 state.data["flags"] = load_flags()
 
 
