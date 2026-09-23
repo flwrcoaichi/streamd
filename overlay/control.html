@@ -1,0 +1,2265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>streamd — control</title>
+<style>
+/* wm.css — window-manager chrome, shared by overlay.html and control.html.
+   Monospace-only, flat borders, no webfonts/frameworks. */
+
+:root {
+  --wm-ink: #ffffff;
+  --wm-bg: rgba(8, 10, 8, 0);
+  --wm-bg-solid: #0a0c0d;
+  --wm-header-ink: #0a0d0a;
+  --wm-mono: 'Courier New', Courier, ui-monospace, monospace;
+  --wm-accent: #ffffff;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  font-family: var(--wm-mono);
+}
+
+.wm-win {
+  position: absolute;
+  border: 1px solid var(--wm-ink);
+  background: var(--wm-bg);
+  display: flex;
+  flex-direction: column;
+  color: var(--wm-ink);
+  box-sizing: border-box;
+}
+
+.wm-header {
+  flex: none;
+  height: 20px;
+  line-height: 20px;
+  background: var(--wm-ink);
+  color: var(--wm-header-ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 8px;
+  text-transform: lowercase;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: default;
+}
+
+.wm-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wm-close {
+  cursor: pointer;
+  padding: 0 4px;
+  flex: none;
+}
+.wm-close:hover { opacity: 0.6; }
+
+.wm-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.wm-resize-handle {
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 14px; height: 14px;
+  cursor: nwse-resize;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--wm-ink) 0px, var(--wm-ink) 1px,
+    transparent 1px, transparent 4px
+  );
+  opacity: 0.7;
+}
+
+/* editable (control.html) affordances */
+.wm-win.wm-selected {
+  outline: 2px dashed var(--wm-ink);
+  outline-offset: 2px;
+}
+
+/* popup windows: same chrome, just toggled via display:none by wm.js */
+.wm-kind-popup { }
+
+/* topmost (pngtuber): keep layout-edit interactions working by not
+   letting its body become a click-through element. This lets the
+   pngtuber window be selected reliably instead of falling through to
+   the text beneath it. */
+.wm-kind-topmost {
+  z-index: 999999 !important;
+}
+.wm-kind-topmost .wm-body { pointer-events: auto; }
+.wm-kind-topmost .wm-header { pointer-events: auto; }
+
+/* generic text/terminal content helpers, used by panel renderers */
+.wm-term {
+  font-family: var(--wm-mono);
+  white-space: pre-wrap;
+  padding: 8px 10px;
+  height: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.wm-term .line { display: block; white-space: pre; overflow: hidden; text-overflow: clip; }
+.wm-dim { opacity: 0.55; }
+.wm-cursor {
+  display: inline-block;
+  width: 0.6em;
+  background: var(--wm-ink);
+  margin-left: 1px;
+  animation: wmBlink 1s step-end infinite;
+}
+@keyframes wmBlink { 50% { opacity: 0; } }
+
+</style>
+<style>
+/* panels.css — content styling for each window/panel type. Monospace only. */
+
+/* now_playing */
+.np-bg { position: absolute; inset: 0; overflow: hidden; }
+.np-art { position: absolute; inset: 0; background-size: cover; background-position: center; filter: brightness(0.55); }
+.np-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; filter: brightness(0.5); }
+.np-video.active { display: block; }
+.np-grad { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0) 40%, rgba(0,0,0,0.75) 100%); }
+.np-fg { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; display: flex; gap: 6px; align-items: baseline; z-index: 2; }
+.np-status { font-size: 0.7rem; opacity: 0.8; flex: none; }
+.np-track { font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.np-artist { font-size: 0.75rem; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* lyrics */
+.lyrics-box { display: flex; flex-direction: column; gap: 2px; }
+.lyric-line { opacity: 0.45; transition: opacity 0.15s, font-weight 0.15s; }
+.lyric-line.active { opacity: 1; font-weight: 700; }
+.lyric-line.next { opacity: 0.7; }
+.lyric-word { transition: opacity 0.08s; }
+.lyric-line.active .lyric-word.sung { text-decoration: underline; }
+
+/* chat */
+.wm-chat-body {
+  padding: 6px 8px;
+  overflow-y: auto;
+  font-family: var(--wm-mono);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+.chat-line { margin-bottom: 2px; }
+.chat-user { font-weight: 700; }
+.chat-badge { height: 1em; vertical-align: middle; margin-right: 3px; }
+.wm-emote { height: 1.5em; vertical-align: middle; display: inline-block; }
+.wm-chat-body::-webkit-scrollbar { width: 6px; }
+.wm-chat-body::-webkit-scrollbar-thumb { background: var(--wm-ink); opacity: 0.3; }
+
+/* spacer */
+.spacer-body { padding: 0; }
+.spacer-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.spacer-pre { padding: 8px 10px; }
+
+/* alerts popup */
+.alerts-body { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px; }
+
+/* pngtuber */
+.pngtuber-frame {
+  max-width: 100%;
+  max-height: 100%;
+  transition: opacity 0.12s ease;
+}
+.pngtuber-frame.speaking { animation: wmBob 0.42s ease-in-out infinite; }
+@keyframes wmBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+</style>
+<style>
+  @font-face {
+    font-family: 'JetBrains Mono';
+    src: local('JetBrains Mono'), local('JetBrainsMono-Regular');
+  }
+
+  :root {
+    --bg:        #0a0c0d;
+    --panel:     #131619;
+    --panel-2:   #1a1e22;
+    --line:      #262b30;
+    --line-lit:  #3a4148;
+    --text:      #d8dee2;
+    --text-dim:  #6b747c;
+    --text-dimmer: #454c52;
+    --amber:     #ffb238;
+    --amber-dim: #6b4d1a;
+    --red:       #ff3b3b;
+    --red-dim:   #4a1414;
+    --green:     #4ade80;
+    --green-dim: #17301f;
+    --blue:      #5eb1ef;
+    --mono: 'JetBrains Mono', 'SF Mono', 'Consolas', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  .tally {
+    display: flex;
+    align-items: stretch;
+    height: 42px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  .tally-brand {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 16px;
+    border-right: 1px solid var(--line);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .tally-brand .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dimmer);
+    transition: background 0.2s, box-shadow 0.2s;
+  }
+  .tally-brand .dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+  .tabs { display: flex; align-items: stretch; }
+  .tab-btn {
+    padding: 0 16px;
+    display: flex; align-items: center;
+    border-right: 1px solid var(--line);
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--amber); background: var(--amber-dim); }
+  .tally-clock { padding: 0 16px; display: flex; align-items: center; color: var(--text-dimmer); border-left: 1px solid var(--line); margin-left: auto; }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── layout editor view ─────────────────────────────────────────────── */
+  #view-layout { display: none; height: calc(100vh - 42px); }
+  #view-layout.active { display: flex; }
+  #layout-stage-wrap {
+    flex: 1;
+    position: relative;
+    background: #050606;
+    background-image:
+      linear-gradient(to right, #14171a 1px, transparent 1px),
+      linear-gradient(to bottom, #14171a 1px, transparent 1px);
+    background-size: 40px 40px;
+    overflow: hidden;
+  }
+  #layout-stage-inner {
+    position: absolute;
+    width: 1440px;
+    height: 1080px;
+    transform-origin: top left;
+  }
+  #stage { position: absolute; inset: 0; }
+  #layout-sidebar {
+    width: 280px;
+    border-left: 1px solid var(--line);
+    background: var(--panel);
+    padding: 14px 16px;
+    overflow-y: auto;
+  }
+  .side-title {
+    font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--text-dimmer); font-weight: 700; margin: 16px 0 8px;
+  }
+  .side-title:first-child { margin-top: 0; }
+  select, input[type=text], input[type=number] {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line-lit);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 2px;
+    outline: none;
+  }
+  button {
+    background: var(--panel-2);
+    border: 1px solid var(--line-lit);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 6px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    width: 100%;
+    margin-top: 6px;
+  }
+  button:hover { border-color: var(--amber); color: var(--amber); }
+  button.primary { background: var(--amber-dim); border-color: var(--amber); color: var(--amber); }
+  .field-row { display: flex; gap: 6px; margin-top: 6px; }
+  .field-row input { width: 50%; }
+  .field-row label { font-size: 10px; color: var(--text-dimmer); display: block; margin-bottom: 2px; }
+  .win-list { display: flex; flex-direction: column; gap: 4px; }
+  .win-list-item {
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .win-list-item:hover { border-color: var(--amber-dim); }
+  .win-list-item.selected { border-color: var(--amber); color: var(--amber); }
+  .win-list-item .rm { opacity: 0.5; cursor: pointer; }
+  .win-list-item .rm:hover { opacity: 1; color: var(--red); }
+  .hint { color: var(--text-dimmer); font-size: 11px; line-height: 1.5; margin-top: 4px; }
+
+  /* ── existing panel styles (unchanged from prior control.html) ─────── */
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1px; background: var(--line); padding: 1px; }
+  .pane { background: var(--panel); padding: 14px 16px; min-width: 0; }
+  .pane-6 { grid-column: span 6; } .pane-4 { grid-column: span 4; } .pane-3 { grid-column: span 3; }
+  .pane-8 { grid-column: span 8; } .pane-9 { grid-column: span 9; } .pane-12 { grid-column: span 12; }
+  @media (max-width: 980px) { .pane-6, .pane-4, .pane-3, .pane-8, .pane-9 { grid-column: span 12; } }
+  .pane-title { display: flex; align-items: center; justify-content: space-between; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-dimmer); font-weight: 700; margin-bottom: 12px; }
+  .field { margin-bottom: 10px; }
+  .field:last-child { margin-bottom: 0; }
+  .field label { display: block; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dimmer); margin-bottom: 5px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .row button { width: auto; margin-top: 0; }
+  .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .chip { font-size: 11px; padding: 5px 10px; border: 1px solid var(--line-lit); border-radius: 20px; cursor: pointer; color: var(--text-dim); }
+  .chip:hover { border-color: var(--amber); color: var(--amber); }
+  .switch-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .switch-row:last-child { border-bottom: none; }
+  .sw { width: 34px; height: 18px; background: var(--bg); border: 1px solid var(--line-lit); border-radius: 10px; position: relative; cursor: pointer; flex-shrink: 0; }
+  .sw::after { content: ''; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-dimmer); transition: transform 0.15s, background 0.15s; }
+  .sw.on { border-color: var(--green); } .sw.on::after { transform: translateX(16px); background: var(--green); }
+  .stat { margin-bottom: 10px; } .stat:last-child { margin-bottom: 0; }
+  .stat-label { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+  .stat-track { height: 4px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+  .stat-fill { height: 100%; background: var(--blue); border-radius: 2px; transition: width 0.3s ease; width: 0%; }
+  .stat-fill.warn { background: var(--amber); } .stat-fill.crit { background: var(--red); }
+  .cmdtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .cmdtable th { text-align: left; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dimmer); padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  .cmdtable td { padding: 6px 8px; border-bottom: 1px solid var(--line); color: var(--text-dim); }
+  .cmdtable tr:hover td { background: var(--panel-2); cursor: pointer; }
+  .cmdtable .trig { color: var(--amber); font-weight: 700; }
+  .cmdtable .del { color: var(--text-dimmer); cursor: pointer; } .cmdtable .del:hover { color: var(--red); }
+  .scenelist { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
+  .scene-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; font-size: 12px; color: var(--text-dim); }
+  .scene-item:hover { border-color: var(--amber-dim); color: var(--text); }
+  .scene-item.active { border-color: var(--amber); color: var(--amber); background: var(--amber-dim); }
+  .audio-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; font-size: 12px; border-bottom: 1px solid var(--line); }
+  .audio-item:last-child { border-bottom: none; }
+  .kv { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+  .kv .k { color: var(--text-dimmer); } .kv .v { color: var(--text); } .kv .v.on { color: var(--green); } .kv .v.off { color: var(--text-dimmer); }
+  .chatlog { height: 220px; overflow-y: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 2px; padding: 8px 10px; font-size: 12px; line-height: 1.6; }
+  .chatlog .empty { color: var(--text-dimmer); font-style: italic; }
+  .chat-user { font-weight: 700; } .chat-text { color: var(--text-dim); }
+  .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel-2); border: 1px solid var(--amber-dim); color: var(--amber); padding: 8px 14px; border-radius: 3px; font-size: 12px; opacity: 0; transform: translateY(6px); transition: opacity 0.2s, transform 0.2s; pointer-events: none; z-index: 200; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="tally">
+  <div class="tally-brand"><span class="dot" id="ws-dot"></span> STREAMD</div>
+  <div class="tabs">
+    <div class="tab-btn active" data-view="layout">layout</div>
+    <div class="tab-btn" data-view="panels">panels</div>
+  </div>
+  <div class="tally-clock" id="clock">--:--:--</div>
+</div>
+
+<!-- ── layout editor: live drag/resize mirror of overlay.html ─────────── -->
+<div id="view-layout" class="view active">
+  <div id="layout-stage-wrap">
+    <div id="layout-stage-inner">
+      <div id="stage"></div>
+    </div>
+  </div>
+  <div id="layout-sidebar">
+    <div class="side-title">add window</div>
+    <select id="add-panel-type">
+      <option value="now_playing">now playing</option>
+      <option value="lyrics">lyrics</option>
+      <option value="status">pc status</option>
+      <option value="socials">socials</option>
+      <option value="message_bar">message bar</option>
+      <option value="screen">screen</option>
+      <option value="chat">chat</option>
+      <option value="extra">extra</option>
+      <option value="spacer">spacer (ascii/ansi)</option>
+      <option value="pngtuber">pngtuber (topmost)</option>
+      <option value="alerts">alerts (popup)</option>
+      <option value="redeem_player">redeem player (popup)</option>
+    </select>
+    <button class="primary" id="btn-add-window">add window</button>
+
+    <div class="side-title">windows</div>
+    <div class="win-list" id="win-list"></div>
+
+    <div id="win-editor" style="display:none;">
+      <div class="side-title">selected window</div>
+      <div class="field-row">
+        <div><label>x</label><input type="number" id="ed-x"></div>
+        <div><label>y</label><input type="number" id="ed-y"></div>
+      </div>
+      <div class="field-row">
+        <div><label>w</label><input type="number" id="ed-w"></div>
+        <div><label>h</label><input type="number" id="ed-h"></div>
+      </div>
+      <div class="field" style="margin-top:8px;">
+        <label>title</label>
+        <input type="text" id="ed-title">
+      </div>
+      <div class="field-row">
+        <div><label>text color</label><input type="color" id="ed-text-color"></div>
+        <div><label>bg color</label><input type="color" id="ed-bg-color"></div>
+      </div>
+      <div class="field-row">
+        <div><label>font size</label><input type="number" min="8" max="80" id="ed-font-size"></div>
+        <div><label>font</label><select id="ed-font-family"><option value="monospace">monospace</option><option value="sans-serif">sans-serif</option></select></div>
+      </div>
+      <div class="field" id="ed-social-lines-row" style="display:none;">
+        <label>social text lines</label>
+        <textarea id="ed-social-lines" rows="4" style="width:100%;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;border:1px solid var(--line-lit);resize:vertical;"></textarea>
+      </div>
+      <div class="field" id="ed-spacer-kind-row" style="display:none;">
+        <label>spacer animation</label>
+        <select id="ed-spacer-kind">
+          <option value="bootlog">bootlog</option>
+          <option value="matrix">matrix rain</option>
+          <option value="static">static/noise</option>
+          <option value="fire">fire</option>
+          <option value="starfield">starfield</option>
+          <option value="oscilloscope">oscilloscope</option>
+        </select>
+      </div>
+      <button id="btn-apply-edit">apply</button>
+      <button id="btn-remove-selected" style="color:var(--red); border-color:var(--red-dim);">remove window</button>
+    </div>
+
+    <div class="hint">
+      drag windows by their header, resize from the bottom-right corner.
+      changes sync live to the overlay and persist on the daemon.
+      "screen" is intentionally blank — place your OBS scene under it manually.
+    </div>
+    <button id="btn-reset-layout" style="margin-top:16px;">reset to default layout</button>
+  </div>
+</div>
+
+<!-- ── panels view: everything else (stream status, chat, tts, obs, etc) ─ -->
+<div id="view-panels" class="view">
+<div class="grid">
+
+  <div class="pane pane-6">
+    <div class="pane-title">overlay status<span></span></div>
+    <div class="chip-list" id="preset-chips"></div>
+    <div class="field">
+      <label>status text</label>
+      <div class="row"><input type="text" id="status-input" placeholder="stream status…"><button id="btn-status-send">set</button></div>
+    </div>
+    <div class="field">
+      <label>overlay message</label>
+      <div class="row"><input type="text" id="message-input" placeholder="say something on stream…"><button id="btn-message-send">send</button><button id="btn-message-clear">clear</button></div>
+    </div>
+  </div>
+
+  <div class="pane pane-3">
+    <div class="pane-title">system</div>
+    <div class="stat"><div class="stat-label"><span>cpu</span><span id="stat-cpu-val">…</span></div><div class="stat-track"><div class="stat-fill" id="stat-cpu"></div></div></div>
+    <div class="stat"><div class="stat-label"><span>mem</span><span id="stat-mem-val">…</span></div><div class="stat-track"><div class="stat-fill" id="stat-mem"></div></div></div>
+    <div class="stat"><div class="stat-label"><span>gpu</span><span id="stat-gpu-val">…</span></div><div class="stat-track"><div class="stat-fill" id="stat-gpu"></div></div></div>
+    <div class="stat"><div class="stat-label"><span>wpm</span><span id="stat-wpm-val">…</span></div><div class="stat-track"><div class="stat-fill" id="stat-wpm"></div></div></div>
+  </div>
+
+  <div class="pane pane-3">
+    <div class="pane-title">channel</div>
+    <div class="kv"><span class="k">twitch</span><span class="v" id="kv-twitch">—</span></div>
+    <div class="kv"><span class="k">followers</span><span class="v" id="kv-followers">…</span></div>
+    <div class="kv"><span class="k">subscribers</span><span class="v" id="kv-subs">…</span></div>
+    <div class="kv"><span class="k">viewers</span><span class="v" id="kv-viewers">…</span></div>
+    <div class="switch-row" style="margin-top:8px;"><div>scheduled today</div><div class="sw" id="sw-scheduled"></div></div>
+    <div class="field"><label>offline text</label><input type="text" id="offline-text-input"></div>
+  </div>
+
+  <div class="pane pane-6">
+    <div class="pane-title">chat<span id="chat-count">0</span></div>
+    <div class="chatlog" id="chatlog"><div class="empty">waiting for chat…</div></div>
+    <div class="field" style="margin-top:10px;"><div class="row"><input type="text" id="chat-send-input" placeholder="send as bot…"><button id="btn-chat-send">send</button></div></div>
+  </div>
+
+  <div class="pane pane-3">
+    <div class="pane-title">text to speech<span id="tts-tag">…</span></div>
+    <div class="field"><div class="row"><input type="text" id="tts-input" placeholder="type something to say…"><button class="primary" id="btn-tts-speak">speak</button></div></div>
+    <div class="row" style="margin-top:8px;"><button id="btn-tts-skip">skip</button><button id="btn-tts-clear">clear</button><button id="btn-tts-toggle">toggle</button></div>
+    <div class="kv" style="margin-top:8px;"><span class="k">queue</span><span class="v" id="tts-queue">0</span></div>
+  </div>
+
+  <div class="pane pane-4">
+    <div class="pane-title">obs scenes<span id="obs-tag">—</span></div>
+    <div class="scenelist" id="obs-scenes"></div>
+    <div class="row" style="margin-top:10px;"><button id="btn-obs-stream">stream</button><button id="btn-obs-record">record</button><button id="btn-obs-refresh">refresh</button></div>
+  </div>
+
+  <div class="pane pane-4">
+    <div class="pane-title">obs audio</div>
+    <div id="obs-audio"></div>
+  </div>
+
+  <div class="pane pane-4">
+    <div class="pane-title">pngtuber mood</div>
+    <div class="row" id="mood-grid"></div>
+  </div>
+
+  <div class="pane pane-8">
+    <div class="pane-title">bot commands</div>
+    <table class="cmdtable"><thead><tr><th>trigger</th><th>type</th><th>enabled</th><th>response</th><th></th></tr></thead><tbody id="cmd-tbody"></tbody></table>
+  </div>
+
+  <div class="pane pane-4">
+    <div class="pane-title">add / edit command</div>
+    <div class="field"><label>trigger</label><input type="text" id="cmd-trigger" placeholder="!demos"></div>
+    <div class="field"><label>response</label><input type="text" id="cmd-response" placeholder="this stream: demo reel…"></div>
+    <div class="row"><button class="primary" id="btn-cmd-save">save</button><button id="btn-cmd-delete">delete</button><button id="btn-cmd-clear">clear</button></div>
+  </div>
+
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/*
+ * wm.js — shared window-manager core for streamd's overlay + control panel.
+ *
+ * A "window" is a plain object:
+ *   {
+ *     id:        string, stable identifier (e.g. "now_playing", "lyrics-2")
+ *     panel:     string, which renderer owns this window's body ("now_playing","lyrics","status",
+ *                "socials","screen","chat","extra","pngtuber","spacer","redeem_player","alerts")
+ *     title:     string, header bar text
+ *     x, y:      number, px, top-left position within the stage
+ *     w, h:      number, px, size
+ *     z:         number, stacking order (higher = front)
+ *     kind:      "normal" | "popup" | "topmost"
+ *                normal  — always rendered, draggable/resizable like anything else
+ *                popup   — only rendered while .visible is true (redeem player / alerts)
+ *                topmost — always rendered above everything else, z is ignored for stacking
+ *     visible:   bool, only meaningful for popup windows
+ *     opts:      object, panel-specific settings (e.g. spacer animation choice)
+ *   }
+ *
+ * This file is intentionally framework-free — no build step, drops into both
+ * overlay.html (render-only, chrome can be hidden) and control.html (editable,
+ * chrome always shown, drag+resize enabled).
+ *
+ * Usage:
+ *   const wm = createWM({
+ *     stageEl: document.getElementById('stage'),
+ *     editable: true|false,          // control.html = true, overlay.html = false
+ *     onLayoutChange: (layout) => {...}, // fired on drag/resize end + add/remove
+ *     renderBody: (win, bodyEl) => {...} // caller fills in panel content
+ *   });
+ *   wm.setLayout(layoutArray);       // replace all windows
+ *   wm.getLayout();                  // current layout array (plain JSON-able)
+ *   wm.addWindow({...});
+ *   wm.removeWindow(id);
+ *   wm.updateWindow(id, patch);
+ */
+
+function createWM(opts) {
+  const stageEl = opts.stageEl;
+  const editable = !!opts.editable;
+  const onLayoutChange = opts.onLayoutChange || (() => {});
+  const renderBody = opts.renderBody || (() => {});
+  const onSelect = opts.onSelect || (() => {});
+
+  const GRID = opts.gridSize || 1; // px snap; 1 = off
+  const MIN_W = 80, MIN_H = 60;
+
+  let windows = new Map(); // id -> window state
+  let els = new Map();     // id -> {root, body, header}
+  let zCounter = 10;
+  let selectedId = null;
+  let suppressEmit = false;
+
+  function snap(v) {
+    if (GRID <= 1) return Math.round(v);
+    return Math.round(v / GRID) * GRID;
+  }
+
+  function clampToStage(win) {
+    const sw = stageEl.clientWidth || 1440;
+    const sh = stageEl.clientHeight || 1080;
+    win.w = Math.max(MIN_W, Math.min(win.w, sw));
+    win.h = Math.max(MIN_H, Math.min(win.h, sh));
+    win.x = Math.max(0, Math.min(win.x, sw - 10));
+    win.y = Math.max(0, Math.min(win.y, sh - 10));
+  }
+
+  function emitLayoutChange() {
+    if (suppressEmit) return;
+    onLayoutChange(getLayout());
+  }
+
+  function getLayout() {
+    return Array.from(windows.values()).map(w => ({ ...w }));
+  }
+
+  function setLayout(layoutArr, opts2) {
+    opts2 = opts2 || {};
+    suppressEmit = !!opts2.silent;
+    // remove windows not present in new layout
+    const nextIds = new Set((layoutArr || []).map(w => w.id));
+    for (const id of Array.from(windows.keys())) {
+      if (!nextIds.has(id)) destroyWindowEl(id);
+    }
+    windows = new Map();
+    (layoutArr || []).forEach(w => {
+      const win = normalizeWindow(w);
+      windows.set(win.id, win);
+      zCounter = Math.max(zCounter, (win.z || 0) + 1);
+    });
+    renderAll();
+    suppressEmit = false;
+  }
+
+  function normalizeWindow(w) {
+    return {
+      id: w.id,
+      panel: w.panel,
+      title: w.title || w.panel || w.id,
+      x: typeof w.x === 'number' ? w.x : 40,
+      y: typeof w.y === 'number' ? w.y : 40,
+      w: typeof w.w === 'number' ? w.w : 320,
+      h: typeof w.h === 'number' ? w.h : 200,
+      z: typeof w.z === 'number' ? w.z : 1,
+      kind: w.kind || 'normal',
+      visible: w.visible !== undefined ? !!w.visible : (w.kind !== 'popup'),
+      opts: w.opts || {},
+    };
+  }
+
+  function addWindow(w) {
+    const win = normalizeWindow(w);
+    win.z = zCounter++;
+    windows.set(win.id, win);
+    renderWindow(win);
+    emitLayoutChange();
+    return win;
+  }
+
+  function removeWindow(id) {
+    windows.delete(id);
+    destroyWindowEl(id);
+    emitLayoutChange();
+  }
+
+  function updateWindow(id, patch, opts2) {
+    const win = windows.get(id);
+    if (!win) return;
+    Object.assign(win, patch);
+    clampToStage(win);
+    const rec = els.get(id);
+    if (rec) applyGeometry(win, rec);
+    if (!(opts2 && opts2.silent)) emitLayoutChange();
+  }
+
+  function bringToFront(id) {
+    const win = windows.get(id);
+    if (!win) return;
+    win.z = zCounter++;
+    const rec = els.get(id);
+    if (rec && win.kind !== 'topmost') rec.root.style.zIndex = String(win.z);
+  }
+
+  function select(id) {
+    selectedId = id;
+    els.forEach((rec, wid) => {
+      rec.root.classList.toggle('wm-selected', wid === id);
+    });
+    onSelect(id);
+  }
+
+  function destroyWindowEl(id) {
+    const rec = els.get(id);
+    if (rec && rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
+    els.delete(id);
+  }
+
+  function renderAll() {
+    els.forEach((rec) => { if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root); });
+    els = new Map();
+    windows.forEach(win => renderWindow(win));
+  }
+
+  function applyGeometry(win, rec) {
+    rec.root.style.left = win.x + 'px';
+    rec.root.style.top = win.y + 'px';
+    rec.root.style.width = win.w + 'px';
+    rec.root.style.height = win.h + 'px';
+    if (win.kind !== 'topmost') rec.root.style.zIndex = String(win.z);
+    const shouldHidePopupInOverlay = win.kind === 'popup' && !win.visible && !editable;
+    rec.root.style.display = shouldHidePopupInOverlay ? 'none' : '';
+  }
+
+  function renderWindow(win) {
+    const root = document.createElement('div');
+    root.className = 'wm-win wm-kind-' + win.kind;
+    root.dataset.id = win.id;
+
+    const header = document.createElement('div');
+    header.className = 'wm-header';
+
+    const title = document.createElement('span');
+    title.className = 'wm-title';
+    title.textContent = win.title;
+    header.appendChild(title);
+
+    if (editable) {
+      const closeBtn = document.createElement('span');
+      closeBtn.className = 'wm-close';
+      closeBtn.textContent = '×';
+      closeBtn.title = 'remove window';
+      closeBtn.onclick = (e) => { e.stopPropagation(); removeWindow(win.id); };
+      header.appendChild(closeBtn);
+    }
+
+    const body = document.createElement('div');
+    body.className = 'wm-body';
+
+    root.appendChild(header);
+    root.appendChild(body);
+    stageEl.appendChild(root);
+
+    const rec = { root, header, body };
+    els.set(win.id, rec);
+    applyGeometry(win, rec);
+
+    if (editable) {
+      wireDrag(win, rec, header);
+      wireResize(win, rec);
+      root.addEventListener('mousedown', () => { bringToFront(win.id); select(win.id); });
+    }
+
+    renderBody(win, body, rec);
+    if (win.kind === 'topmost') root.classList.add('wm-topmost');
+  }
+
+  function wireDrag(win, rec, handle) {
+    let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
+    handle.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('wm-close')) return;
+      dragging = true;
+      startX = e.clientX; startY = e.clientY;
+      origX = win.x; origY = win.y;
+      e.preventDefault();
+      bringToFront(win.id);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      win.x = snap(origX + (e.clientX - startX));
+      win.y = snap(origY + (e.clientY - startY));
+      clampToStage(win);
+      applyGeometry(win, rec);
+    });
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      emitLayoutChange();
+    });
+  }
+
+  function wireResize(win, rec) {
+    const handle = document.createElement('div');
+    handle.className = 'wm-resize-handle';
+    rec.root.appendChild(handle);
+    let resizing = false, startX = 0, startY = 0, origW = 0, origH = 0;
+    handle.addEventListener('mousedown', (e) => {
+      resizing = true;
+      startX = e.clientX; startY = e.clientY;
+      origW = win.w; origH = win.h;
+      e.preventDefault();
+      e.stopPropagation();
+      bringToFront(win.id);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!resizing) return;
+      win.w = snap(Math.max(MIN_W, origW + (e.clientX - startX)));
+      win.h = snap(Math.max(MIN_H, origH + (e.clientY - startY)));
+      clampToStage(win);
+      applyGeometry(win, rec);
+    });
+    window.addEventListener('mouseup', () => {
+      if (!resizing) return;
+      resizing = false;
+      emitLayoutChange();
+    });
+  }
+
+  function showPopup(id, visible) {
+    const win = windows.get(id);
+    if (!win) return;
+    win.visible = !!visible;
+    if (visible) win.z = zCounter++;
+    const rec = els.get(id);
+    if (rec) applyGeometry(win, rec);
+  }
+
+  function getWindow(id) { return windows.get(id); }
+  function forEachWindow(fn) { windows.forEach(fn); }
+  function getBodyEl(id) { const rec = els.get(id); return rec ? rec.body : null; }
+  function getRootEl(id) { const rec = els.get(id); return rec ? rec.root : null; }
+
+  return {
+    setLayout, getLayout, addWindow, removeWindow, updateWindow,
+    showPopup, getWindow, forEachWindow, getBodyEl, getRootEl,
+    bringToFront, select,
+  };
+}
+
+</script>
+<script>
+/*
+ * panels.js — per-window-type content renderers for the streamd overlay.
+ *
+ * Each panel exposes:
+ *   mount(bodyEl, win)   — called once when the window is created; build DOM, return a handle
+ *   onState(handle, key, payload) — called on every relevant websocket message
+ *   unmount(handle)      — called when the window is removed (cleanup timers/RAF)
+ *
+ * Panels are pure UI: they read from the shared `Overlay.state` object (kept
+ * up to date by overlay.html's websocket handler) and from messages passed
+ * directly to onState. No panel talks to the websocket itself.
+ */
+
+const Panels = (() => {
+
+  const $create = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str == null ? '' : String(str);
+    return d.innerHTML;
+  }
+
+  // ── 7TV emotes (shared across chat panel instances) ─────────────────────
+  const sevenTv = new Map();
+  let sevenTvLoaded = false;
+  async function ensure7tv(channelLogin) {
+    if (sevenTvLoaded) return;
+    sevenTvLoaded = true;
+    try {
+      const res = await fetch('https://7tv.io/v3/emote-sets/global');
+      if (res.ok) {
+        const data = await res.json();
+        for (const e of (data.emotes || [])) {
+          const host = e.data && e.data.host;
+          if (!host) continue;
+          const file = (host.files || []).find(f => f.format === 'WEBP' && f.name === '1x.webp') || (host.files || [])[0];
+          if (file) sevenTv.set(e.name, `https:${host.url}/${file.name}`);
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+    if (!channelLogin) return;
+    try {
+      const idRes = await fetch(`https://decapi.me/twitch/id/${encodeURIComponent(channelLogin)}`);
+      if (!idRes.ok) return;
+      const text = (await idRes.text()).trim();
+      if (!/^\d+$/.test(text)) return;
+      const userRes = await fetch(`https://7tv.io/v3/users/twitch/${text}`);
+      if (!userRes.ok) return;
+      const userData = await userRes.json();
+      const emotes = (userData.emote_set && userData.emote_set.emotes) || [];
+      for (const e of emotes) {
+        const host = e.data && e.data.host;
+        if (!host) continue;
+        const file = (host.files || []).find(f => f.format === 'WEBP' && f.name === '1x.webp') || (host.files || [])[0];
+        if (file) sevenTv.set(e.name, `https:${host.url}/${file.name}`);
+      }
+    } catch (e) { /* non-fatal */ }
+  }
+
+  function renderChatText(text, emotes) {
+    let segments = [];
+    const sorted = emotes ? [...emotes].sort((a, b) => a.start - b.start) : [];
+    let cursor = 0;
+    for (const e of sorted) {
+      if (e.start < cursor) continue;
+      if (e.start > cursor) segments.push({ text: text.slice(cursor, e.start), isEmote: false });
+      segments.push({ text: e.name, isEmote: true, url: e.url, name: e.name });
+      cursor = e.end + 1;
+    }
+    if (cursor < text.length) segments.push({ text: text.slice(cursor), isEmote: false });
+    let out = '';
+    for (const seg of segments) {
+      if (seg.isEmote) {
+        out += `<img class="wm-emote" src="${seg.url}" alt="${escapeHtml(seg.name)}" title="${escapeHtml(seg.name)}" />`;
+        continue;
+      }
+      const words = seg.text.split(/(\s+)/);
+      for (const word of words) {
+        const url = sevenTv.get(word);
+        if (url) out += `<img class="wm-emote" src="${url}" alt="${escapeHtml(word)}" title="${escapeHtml(word)} [7tv]" />`;
+        else out += escapeHtml(word);
+      }
+    }
+    return out;
+  }
+
+  // ── now_playing ───────────────────────────────────────────────────────
+  const now_playing = {
+    mount(body, win) {
+      body.innerHTML = `
+        <div class="np-bg"><div class="np-art"></div><video class="np-video" autoplay loop muted playsinline></video><div class="np-grad"></div></div>
+        <div class="np-fg">
+          <span class="np-status">▶</span>
+          <span class="np-track">—</span>
+          <span class="np-artist"></span>
+        </div>`;
+      return {
+        art: body.querySelector('.np-art'),
+        video: body.querySelector('.np-video'),
+        track: body.querySelector('.np-track'),
+        artist: body.querySelector('.np-artist'),
+        status: body.querySelector('.np-status'),
+        lastKey: '',
+      };
+    },
+    onState(h, key, msg, overlayState) {
+      if (key === 'music') {
+        const m = msg;
+        h.track.textContent = m.title || '—';
+        h.artist.textContent = m.artist ? `— ${m.artist}` : '';
+        h.status.textContent = m.playing ? '▶' : '⏸';
+        const k = `${m.title}::${m.artist}`;
+        if (k !== h.lastKey) {
+          h.lastKey = k;
+          if (m.title && m.title !== '—') {
+            h.art.style.backgroundImage = `url('/art.png?t=${Date.now()}')`;
+          } else {
+            h.art.style.backgroundImage = '';
+          }
+        }
+      } else if (key === 'music_video') {
+        if (msg.url) {
+          h.video.src = msg.url;
+          h.video.classList.add('active');
+        } else {
+          h.video.classList.remove('active');
+          h.video.removeAttribute('src');
+        }
+      }
+    },
+  };
+
+  // ── lyrics ───────────────────────────────────────────────────────────
+  const lyrics = {
+    mount(body, win) {
+      body.classList.add('wm-term');
+      const box = $create('div', 'lyrics-box');
+      body.appendChild(box);
+      return { box, data: { synced_lines: [], synced_words: [], plain_lines: [] }, raf: null, musicState: { playing: false, duration: 0, position: 0, _updatedAt: 0 } };
+    },
+    onState(h, key, msg) {
+      if (key === 'music') {
+        h.musicState = { playing: msg.playing, duration: Number(msg.duration) || 0, position: Number(msg.position) || 0, _updatedAt: performance.now() };
+      } else if (key === 'lyrics') {
+        if (!msg.found) {
+          h.data = { synced_lines: [], synced_words: [], plain_lines: [] };
+          h.box.innerHTML = '<span class="wm-dim">no lyrics</span>';
+          return;
+        }
+        h.data = {
+          synced_lines: msg.synced_lines || [],
+          synced_words: msg.synced_words || [],
+          plain_lines: msg.plain_lines || msg.lines || [],
+        };
+        startLoop(h);
+      }
+    },
+    unmount(h) { if (h.raf) cancelAnimationFrame(h.raf); },
+  };
+  function elapsedSeconds(h) {
+    if (!h.musicState.playing) return h.musicState.position;
+    return h.musicState.position + (performance.now() - h.musicState._updatedAt) / 1000;
+  }
+  function activeLineIndex(h, elapsed) {
+    const lines = h.data.synced_lines;
+    let idx = -1;
+    for (let i = 0; i < lines.length; i++) { if (lines[i].time <= elapsed) idx = i; else break; }
+    return idx;
+  }
+  function renderLyricsDOM(h) {
+    const elapsed = elapsedSeconds(h);
+    const lines = h.data.synced_lines, words = h.data.synced_words, plain = h.data.plain_lines;
+    let displayLines = [], activeIdx = -1;
+    const ABOVE = 2, BELOW = 3;
+    if (lines.length) {
+      activeIdx = activeLineIndex(h, elapsed);
+      const start = Math.max(0, activeIdx - ABOVE);
+      const end = Math.min(lines.length - 1, (activeIdx < 0 ? BELOW - 1 : activeIdx) + BELOW);
+      for (let i = start; i <= end; i++) displayLines.push({ idx: i, text: lines[i].text, time: lines[i].time });
+    } else if (plain.length) {
+      const dur = h.musicState.duration || 180;
+      const prog = Math.min(1, Math.max(0, elapsed / dur));
+      const mid = Math.floor(prog * plain.length);
+      const start = Math.max(0, mid - ABOVE), end = Math.min(plain.length - 1, mid + BELOW);
+      for (let i = start; i <= end; i++) displayLines.push({ idx: i, text: plain[i], time: null });
+      activeIdx = mid;
+    }
+    if (!displayLines.length) { h.box.innerHTML = '<span class="wm-dim">—</span>'; return; }
+    h.box.innerHTML = '';
+    for (const dl of displayLines) {
+      const lineEl = $create('div', 'lyric-line' + (dl.idx === activeIdx ? ' active' : (dl.idx === activeIdx + 1 ? ' next' : '')));
+      if (dl.idx === activeIdx && words.length && dl.text) {
+        const lineStart = dl.time, nextLine = lines[dl.idx + 1], lineEnd = nextLine ? nextLine.time : Infinity;
+        const lineWords = words.filter(w => w.time >= lineStart && w.time < lineEnd);
+        if (lineWords.length) {
+          for (const w of lineWords) {
+            const span = $create('span', 'lyric-word' + (elapsed >= w.time ? ' sung' : ''));
+            span.textContent = w.word + ' ';
+            lineEl.appendChild(span);
+          }
+        } else lineEl.textContent = dl.text;
+      } else lineEl.textContent = dl.text || ' ';
+      h.box.appendChild(lineEl);
+    }
+  }
+  function startLoop(h) {
+    if (h.raf) cancelAnimationFrame(h.raf);
+    const tick = () => { renderLyricsDOM(h); h.raf = requestAnimationFrame(tick); };
+    tick();
+  }
+
+  // ── status (pc stats) ────────────────────────────────────────────────
+  const status = {
+    mount(body) {
+      body.classList.add('wm-term');
+body.innerHTML = 
+  `<span class="line">cpu    <span data-k="cpu">…</span></span>` +
+  `<span class="line">mem    <span data-k="mem">…</span></span>` +
+  `<span class="line">gpu    <span data-k="gpu">…</span></span>` +
+  `<span class="line">wpm    <span data-k="wpm">…</span></span>` +
+  `<span class="line">uptime <span data-k="uptime">…</span></span>`;
+      const els = {};
+      body.querySelectorAll('[data-k]').forEach(e => els[e.dataset.k] = e);
+      return { els };
+    },
+    onState(h, key, msg) {
+      if (key !== 'stats') return;
+      for (const k of ['cpu', 'mem', 'gpu', 'wpm', 'uptime']) {
+        if (msg[k] !== undefined && h.els[k]) h.els[k].textContent = msg[k];
+      }
+    },
+  };
+
+  // ── socials ──────────────────────────────────────────────────────────
+    const socials = {
+    mount(body, win) {
+      body.classList.add('wm-term');
+      const lines = ((win && win.opts && win.opts.social_lines) || 'twitter: @vanillyn_net\ndiscord: @vanillyn').split(/\r?\n/).filter(Boolean);
+      body.innerHTML = lines.map(l => `<span class="line">${escapeHtml(l)}</span>`).join('') + '<span class="wm-cursor">&nbsp;</span>';
+      if (win && win.opts) {
+        body.style.color = win.opts.text_color || '';
+        body.style.fontSize = win.opts.font_size ? String(win.opts.font_size) + 'px' : '';
+        body.style.backgroundColor = win.opts.bg_color || '';
+        body.style.fontFamily = win.opts.font_family === 'sans-serif' ? 'sans-serif' : 'monospace';
+      }
+      return {};
+    },
+    onState() {},
+  };
+
+  // ── message bar ─────────────────────────────────────────────────────
+  const message_bar = {
+    mount(body, win) {
+      body.classList.add('wm-term');
+      body.style.display = 'flex';
+      body.style.alignItems = 'center';
+      body.style.justifyContent = 'center';
+      body.style.overflow = 'auto';
+      body.style.whiteSpace = 'normal';
+      body.style.wordBreak = 'break-word';
+      const line = $create('div', 'message-bar-line');
+      line.style.fontWeight = '700';
+      line.style.whiteSpace = 'normal';
+      line.style.wordBreak = 'break-word';
+      line.style.textOverflow = 'clip';
+      line.style.overflow = 'visible';
+      line.style.width = '100%';
+      body.appendChild(line);
+      if (win && win.opts) {
+        body.style.color = win.opts.text_color || '';
+        body.style.fontSize = win.opts.font_size ? String(win.opts.font_size) + 'px' : '';
+        body.style.backgroundColor = win.opts.bg_color || '';
+        body.style.fontFamily = win.opts.font_family === 'sans-serif' ? 'sans-serif' : 'monospace';
+      }
+      return { line };
+    },
+    onState(h, key, msg) {
+      if (key !== 'message') return;
+      h.line.textContent = msg && msg.value ? String(msg.value) : '';
+    },
+  };
+
+  // ── screen (deliberately blank — OBS source layered manually) ──────────
+  const screen = {
+    mount(body) {
+      body.style.background = 'transparent';
+      return {};
+    },
+    onState() {},
+  };
+
+  // ── chat ─────────────────────────────────────────────────────────────
+  const CHAT_MAX = 40;
+  const chat = {
+    mount(body, win, ctx) {
+      body.classList.add('wm-chat-body');
+      ensure7tv(ctx && ctx.channel);
+      return { body };
+    },
+    onState(h, key, msg) {
+      if (key !== 'chat') return;
+      const line = $create('div', 'chat-line');
+      const badges = (msg.badges || []).map(b => `<img class="chat-badge" src="${b.url}" alt="" />`).join('');
+      const nameStyle = msg.color ? ` style="color:${msg.color}"` : '';
+      line.innerHTML = `<span class="chat-user"${nameStyle}>${badges}${escapeHtml(msg.user)}:</span> <span class="chat-text">${renderChatText(msg.text, msg.emotes)}</span>`;
+      h.body.appendChild(line);
+      while (h.body.children.length > CHAT_MAX) h.body.removeChild(h.body.firstChild);
+      h.body.scrollTop = h.body.scrollHeight;
+    },
+  };
+
+  // ── extra ────────────────────────────────────────────────────────────
+  const extra = {
+    mount(body) {
+      body.classList.add('wm-term');
+      body.innerHTML = 'flwr/ashOS pre-4<br>© 1998 flowerCO, © ???? ????????<br>For Monitoring S0-ACZ4<br><p style="color: red;">Failed to monitor CAM1 on Channel4</p>Monitoring DWM1 on Channel4';
+      return { body };
+    },
+    onState(h, key, msg) {
+      if (key !== 'extra') return;
+      h.body.textContent = msg.value || '';
+    },
+  };
+
+  // ── spacer: canned ascii/ansi animations ────────────────────────────
+  const BOOTLOG_LINES = [
+'Starting systemd-udevd version 255.4-1-arch',
+'/dev/nvme0n1p2: clean, 214580/19660800 files, 4120932/78643200 blocks',
+'[  OK  ] Started Dispatch Password Requests to Console Directory Watch.',
+'[  OK  ] Reached target Local Encrypted Volumes.',
+'[  OK  ] Reached target Path Units.',
+'[  OK  ] Reached target Remote File Systems.',
+'[  OK  ] Reached target Slice Units.',
+'[  OK  ] Reached target Swaps.',
+'[  OK  ] Listening on Device-mapper event daemon Socket.',
+'[  OK  ] Listening on LVM2 poll daemon Socket.',
+'[  OK  ] Listening on Process Core Dump Socket.',
+'[  OK  ] Listening on initctl Compatibility Named Pipe.',
+'[  OK  ] Listening on Journal Socket (/dev/log).',
+'[  OK  ] Listening on Journal Socket.',
+'[  OK  ] Listening on udev Control Socket.',
+'[  OK  ] Listening on udev Kernel Socket.',
+'         Starting Journal Service...',
+'         Starting Load Kernel Modules...',
+'         Starting Remount Root and Kernel File Systems...',
+'         Starting Coldplug all udev Devices...',
+'[  OK  ] Started Journal Service.',
+'[  OK  ] Finished Remount Root and Kernel File Systems.',
+'         Starting Flush Journal to Persistent Storage...',
+'[  OK  ] Finished Load Kernel Modules.',
+'         Starting Apply Kernel Variables...',
+'[  OK  ] Finished Flush Journal to Persistent Storage.',
+'[  OK  ] Finished Apply Kernel Variables.',
+'[  OK  ] Finished Coldplug all udev Devices.',
+'         Starting Helper to synchronize boot up for ifupdown...',
+'[  OK  ] Finished Helper to synchronize boot up for ifupdown.',
+'[  OK  ] Reached target Preparation for Network.',
+'         Starting Monitoring of LVM2 mirrors, snapshot etc. using dmeventd or progress polling...',
+'[  OK  ] Finished Monitoring of LVM2 mirrors, snapshot etc. using dmeventd or progress polling.',
+'[  OK  ] Reached target Local File Systems (Pre).',
+'         Mounting /boot...',
+'         Mounting /tmp...',
+'[  OK  ] Mounted /boot.',
+'[  OK  ] Mounted /tmp.',
+'[  OK  ] Reached target Local File Systems.',
+'         Starting Create Volatile Files and Directories...',
+'         Starting Security Auditing Service...',
+'[  OK  ] Finished Security Auditing Service.',
+'[  OK  ] Finished Create Volatile Files and Directories.',
+'         Starting Network Time Synchronization...',
+'         Starting Update UTMP about System Boot/Shutdown...',
+'[  OK  ] Finished Update UTMP about System Boot/Shutdown.',
+'[  OK  ] Started Network Time Synchronization.',
+'[  OK  ] Reached target System Time Set.',
+'[  OK  ] Reached target System Initialization.',
+'[  OK  ] Started Daily Cleanup of Temporary Directories.',
+'[  OK  ] Reached target Timer Units.',
+'[  OK  ] Listening on D-Bus System Message Bus Socket.',
+'[  OK  ] Reached target Socket Units.',
+'[  OK  ] Reached target Basic System.',
+'         Starting D-Bus System Message Bus...',
+'         Starting User Login Management...',
+'[  OK  ] Started D-Bus System Message Bus.',
+'[  OK  ] Started User Login Management.',
+'[  OK  ] Reached target Multi-User System.',
+'[  OK  ] Reached target Graphical Interface.',
+
+'Arch Linux 6.8.9-arch1-1 (tty1)',
+
+'archlinux login:',
+  ];
+
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const spacer = {
+  mount(body, win) {
+    body.classList.add('wm-term', 'spacer-body');
+    const kind = (win && win.opts && win.opts.spacer_kind) || 'bootlog';
+    const canvas = document.createElement('canvas');
+    const pre = document.createElement('div');
+    pre.className = 'spacer-pre';
+    body.appendChild(canvas);
+    body.appendChild(pre);
+
+    const h = {
+      kind,
+      canvas,
+      pre,
+      raf: null,
+      timer: null,
+      lineIdx: 0,
+      cleanups: [],
+      body
+    };
+
+    startSpacer(h);
+    return h;
+  },
+
+  onState(h, state) {
+    if (state && state.spacer_kind && state.spacer_kind !== h.kind) {
+      h.kind = state.spacer_kind;
+      this.unmount(h);
+      startSpacer(h);
+    }
+  },
+
+  unmount(h) {
+    if (h.raf) cancelAnimationFrame(h.raf);
+    if (h.timer) clearTimeout(h.timer);
+    h.raf = null;
+    h.timer = null;
+    if (h.cleanups) {
+      h.cleanups.forEach(fn => fn());
+      h.cleanups = [];
+    }
+  }
+};
+
+function startSpacer(h) {
+  h.cleanups = [];
+
+  // Bootlog Mode (Text-based)
+  if (h.kind === 'bootlog') {
+    h.pre.style.display = 'block';
+    h.canvas.style.display = 'none';
+    const tick = () => {
+      const n = Math.min(BOOTLOG_LINES.length, h.lineIdx + 1);
+      h.pre.innerHTML =
+        BOOTLOG_LINES.slice(0, n)
+          .map(l => `<div class="line">${escapeHtml(l)}</div>`)
+          .join('') + '<span class="wm-cursor">&nbsp;</span>';
+      h.lineIdx = (h.lineIdx + 1) % (BOOTLOG_LINES.length + 3);
+      h.timer = setTimeout(tick, 600);
+    };
+    tick();
+    return;
+  }
+
+  // Canvas Modes
+  h.pre.style.display = 'none';
+  h.canvas.style.display = 'block';
+  const ctx = h.canvas.getContext('2d');
+
+  function resize() {
+    const rect = h.canvas.parentElement ? h.canvas.parentElement.getBoundingClientRect() : { width: 300, height: 200 };
+    h.canvas.width = rect.width || 300;
+    h.canvas.height = rect.height || 200;
+  }
+  resize();
+
+  const onResize = () => resize();
+  window.addEventListener('resize', onResize);
+  h.cleanups.push(() => window.removeEventListener('resize', onResize));
+
+  let t = 0;
+  const modeData = {};
+
+  if (h.kind === 'matrix') {
+    const chars = '01アイウエオカキクケコサシスセソ$#@%&*';
+    let cols = new Array(Math.floor(h.canvas.width / 14)).fill(0);
+    modeData.matrix = { chars, cols };
+  } else if (h.kind === 'starfield') {
+    const stars = Array.from({ length: 150 }, () => ({
+      x: (Math.random() - 0.5) * 1000,
+      y: (Math.random() - 0.5) * 1000,
+      z: Math.random() * 1000
+    }));
+    modeData.stars = stars;
+  } else if (h.kind === 'pipe_maze') {
+    modeData.pipes = [];
+    modeData.gridSize = 16;
+  } else if (h.kind === 'dvd_logo') {
+    modeData.dvd = {
+      x: 50,
+      y: 50,
+      vx: 2,
+      vy: 1.5,
+      w: 80,
+      h: 40,
+      color: '#00ffcc'
+    };
+  } else if (h.kind === 'fire') {
+    modeData.fireCols = Math.floor(h.canvas.width / 4);
+    modeData.fireRows = Math.floor(h.canvas.height / 4);
+    modeData.fireBuf = new Array(modeData.fireCols * modeData.fireRows).fill(0);
+  }
+
+  function frame() {
+    t += 1;
+    const w = h.canvas.width;
+    const hg = h.canvas.height;
+
+    switch (h.kind) {
+      case 'matrix': {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.fillRect(0, 0, w, hg);
+        ctx.fillStyle = '#00ff66';
+        ctx.font = '13px monospace';
+        const cols = modeData.matrix.cols;
+        const chars = modeData.matrix.chars;
+        if (cols.length !== Math.floor(w / 14)) {
+          modeData.matrix.cols = new Array(Math.floor(w / 14)).fill(0);
+        }
+        modeData.matrix.cols.forEach((y, i) => {
+          const ch = chars[Math.floor(Math.random() * chars.length)];
+          ctx.fillText(ch, i * 14, y);
+          if (y > hg && Math.random() > 0.975) modeData.matrix.cols[i] = 0;
+          else modeData.matrix.cols[i] = y + 14;
+        });
+        break;
+      }
+
+      case 'static': {
+        const img = ctx.createImageData(w, hg);
+        for (let i = 0; i < img.data.length; i += 4) {
+          const v = Math.random() * 255;
+          img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+          img.data[i + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        break;
+      }
+
+      case 'cyber_grid': {
+        ctx.fillStyle = '#0a0a12';
+        ctx.fillRect(0, 0, w, hg);
+        ctx.strokeStyle = '#ff007f';
+        ctx.lineWidth = 1;
+
+        const horizon = hg * 0.4;
+        const fov = 200;
+        const speed = (t * 2) % 40;
+
+        for (let z = 10; z < 400; z += 40) {
+          const cz = z - speed;
+          if (cz <= 0) continue;
+          const py = horizon + (fov * 80) / cz;
+          ctx.beginPath();
+          ctx.moveTo(0, py);
+          ctx.lineTo(w, py);
+          ctx.stroke();
+        }
+
+        const numCols = 16;
+        for (let i = -numCols; i <= numCols; i++) {
+          const x0 = w / 2 + i * 20;
+          const x1 = w / 2 + i * 180;
+          ctx.beginPath();
+          ctx.moveTo(x0, horizon);
+          ctx.lineTo(x1, hg);
+          ctx.stroke();
+        }
+
+        const grad = ctx.createRadialGradient(w / 2, horizon, 10, w / 2, horizon, 90);
+        grad.addColorStop(0, '#ffcc00');
+        grad.addColorStop(0.5, '#ff0055');
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(w / 2, horizon, 80, 0, Math.PI * 2);
+        ctx.fill();
+        break;
+      }
+
+      case 'starfield': {
+        ctx.fillStyle = '#000005';
+        ctx.fillRect(0, 0, w, hg);
+        const cx = w / 2;
+        const cy = hg / 2;
+
+        modeData.stars.forEach(s => {
+          s.z -= 4;
+          if (s.z <= 0) {
+            s.z = 1000;
+            s.x = (Math.random() - 0.5) * 1000;
+            s.y = (Math.random() - 0.5) * 1000;
+          }
+
+          const k = 256 / s.z;
+          const px = s.x * k + cx;
+          const py = s.y * k + cy;
+
+          if (px >= 0 && px < w && py >= 0 && py < hg) {
+            const size = Math.max(0.5, (1 - s.z / 1000) * 3);
+            const shade = Math.floor((1 - s.z / 1000) * 255);
+            ctx.fillStyle = `rgb(${shade},${shade},255)`;
+            ctx.fillRect(px, py, size, size);
+          }
+        });
+        break;
+      }
+
+      case 'radar': {
+        ctx.fillStyle = 'rgba(5, 15, 5, 0.15)';
+        ctx.fillRect(0, 0, w, hg);
+        const cx = w / 2;
+        const cy = hg / 2;
+        const radius = Math.min(w, hg) * 0.42;
+
+        ctx.strokeStyle = '#00ff44';
+        ctx.lineWidth = 1.5;
+
+        for (let r = 0.25; r <= 1; r += 0.25) {
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius * r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        ctx.beginPath();
+        ctx.moveTo(cx - radius, cy);
+        ctx.lineTo(cx + radius, cy);
+        ctx.moveTo(cx, cy - radius);
+        ctx.lineTo(cx, cy + radius);
+        ctx.stroke();
+
+        const angle = (t * 0.03) % (Math.PI * 2);
+        const sx = cx + Math.cos(angle) * radius;
+        const sy = cy + Math.sin(angle) * radius;
+
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(sx, sy);
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const blipAngle = 2.1;
+        const diff = Math.abs((angle % (Math.PI * 2)) - blipAngle);
+        if (diff < 0.1) {
+          const bx = cx + Math.cos(blipAngle) * radius * 0.65;
+          const by = cy + Math.sin(blipAngle) * radius * 0.65;
+          ctx.fillStyle = '#ff3300';
+          ctx.beginPath();
+          ctx.arc(bx, by, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        break;
+      }
+
+      case 'oscilloscope': {
+        ctx.fillStyle = 'rgba(0, 10, 5, 0.2)';
+        ctx.fillRect(0, 0, w, hg);
+
+        ctx.strokeStyle = '#00ffaa';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+
+        const cy = hg / 2;
+        for (let x = 0; x < w; x += 2) {
+          const y =
+            cy +
+            Math.sin(x * 0.02 + t * 0.08) * 30 +
+            Math.cos(x * 0.05 - t * 0.1) * 15 +
+            (Math.random() - 0.5) * 4;
+          if (x === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        break;
+      }
+
+      case 'pipe_maze': {
+        if (t % 3 === 0) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.01)';
+          ctx.fillRect(0, 0, w, hg);
+
+          const g = modeData.gridSize;
+          if (modeData.pipes.length === 0 || Math.random() < 0.02) {
+            const colors = ['#00f0ff', '#ff007f', '#39ff14', '#ffe600'];
+            modeData.pipes.push({
+              x: Math.floor(Math.random() * (w / g)) * g,
+              y: Math.floor(Math.random() * (hg / g)) * g,
+              dir: Math.floor(Math.random() * 4),
+              color: colors[Math.floor(Math.random() * colors.length)]
+            });
+            if (modeData.pipes.length > 8) modeData.pipes.shift();
+          }
+
+          modeData.pipes.forEach(p => {
+            ctx.fillStyle = p.color;
+            ctx.fillRect(p.x, p.y, g - 2, g - 2);
+
+            const dirs = [
+              [1, 0],
+              [0, 1],
+              [-1, 0],
+              [0, -1]
+            ];
+            if (Math.random() < 0.2) p.dir = Math.floor(Math.random() * 4);
+
+            p.x = (p.x + dirs[p.dir][0] * g + w) % w;
+            p.y = (p.y + dirs[p.dir][1] * g + hg) % hg;
+          });
+        }
+        break;
+      }
+
+      case 'dvd_logo': {
+        ctx.fillStyle = '#08080c';
+        ctx.fillRect(0, 0, w, hg);
+
+        const d = modeData.dvd;
+        d.x += d.vx;
+        d.y += d.vy;
+
+        const colors = ['#00ffcc', '#ff0055', '#ffcc00', '#9900ff', '#00ff66'];
+
+        if (d.x <= 0 || d.x + d.w >= w) {
+          d.vx *= -1;
+          d.color = colors[Math.floor(Math.random() * colors.length)];
+        }
+        if (d.y <= 0 || d.y + d.h >= hg) {
+          d.vy *= -1;
+          d.color = colors[Math.floor(Math.random() * colors.length)];
+        }
+
+        ctx.fillStyle = d.color;
+        ctx.fillRect(d.x, d.y, d.w, d.h);
+
+        ctx.fillStyle = '#000';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('SPACER', d.x + d.w / 2, d.y + d.h / 2);
+        break;
+      }
+
+      case 'glitch_text': {
+        ctx.fillStyle = 'rgba(10, 10, 15, 0.3)';
+        ctx.fillRect(0, 0, w, hg);
+
+        ctx.font = 'bold 24px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        const text = 'SYSTEM ONLINE';
+
+        ctx.fillStyle = 'rgba(255, 0, 80, 0.8)';
+        ctx.fillText(text, w / 2 + (Math.random() - 0.5) * 8, hg / 2 + (Math.random() - 0.5) * 4);
+
+        ctx.fillStyle = 'rgba(0, 240, 255, 0.8)';
+        ctx.fillText(text, w / 2 + (Math.random() - 0.5) * 8, hg / 2 + (Math.random() - 0.5) * 4);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(text, w / 2, hg / 2);
+
+        if (Math.random() < 0.25) {
+          const sy = Math.random() * hg;
+          const sh = Math.random() * 20 + 5;
+          const slice = ctx.getImageData(0, sy, w, sh);
+          ctx.putImageData(slice, (Math.random() - 0.5) * 20, sy);
+        }
+        break;
+      }
+
+      case 'fire': {
+        const cols = modeData.fireCols || Math.floor(w / 4);
+        const rows = modeData.fireRows || Math.floor(hg / 4);
+        const buf = modeData.fireBuf || new Array(cols * rows).fill(0);
+
+        for (let c = 0; c < cols; c++) {
+          buf[(rows - 1) * cols + c] = Math.random() > 0.4 ? 255 : 0;
+        }
+
+        for (let r = 0; r < rows - 1; r++) {
+          for (let c = 0; c < cols; c++) {
+            const idx = r * cols + c;
+            const below = (r + 1) * cols + c;
+            const decay = Math.floor(Math.random() * 12);
+            buf[idx] = Math.max(0, (buf[below] || 0) - decay);
+          }
+        }
+
+        const pw = Math.ceil(w / cols);
+        const ph = Math.ceil(hg / rows);
+
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const val = buf[r * cols + c];
+            if (val > 0) {
+              const red = val;
+              const green = Math.max(0, val - 100);
+              const blue = Math.max(0, val - 200);
+              ctx.fillStyle = `rgb(${red},${green},${blue})`;
+              ctx.fillRect(c * pw, r * ph, pw, ph);
+            }
+          }
+        }
+
+        modeData.fireBuf = buf;
+        break;
+      }
+
+      default:
+        ctx.fillStyle = '#000';
+        ctx.fillRect(0, 0, w, hg);
+    }
+
+    h.raf = requestAnimationFrame(frame);
+  }
+
+  frame();
+}
+
+  // ── alerts (popup) ───────────────────────────────────────────────────
+  const alerts = {
+    mount(body) {
+      body.classList.add('wm-term', 'alerts-body');
+      return { body, hideTimer: null };
+    },
+    onState(h, key, msg, overlayState, wm, winId) {
+      if (key !== 'alert_event') return;
+      const label = { sub: 'new subscriber', resub: 'resubscribed', bits: 'cheered bits', follow: 'new follower', raid: 'raid' }[msg.alert] || msg.alert;
+      h.body.innerHTML = `<div class="line">${escapeHtml(label)}</div><div class="line" style="font-weight:700">${escapeHtml(msg.message || '')}</div>` +
+        (msg.sub ? `<div class="line wm-dim">${escapeHtml(msg.sub)}</div>` : '');
+      wm.showPopup(winId, true);
+      if (h.hideTimer) clearTimeout(h.hideTimer);
+      h.hideTimer = setTimeout(() => wm.showPopup(winId, false), 6000);
+    },
+  };
+
+  // ── redeem_player (popup) ────────────────────────────────────────────
+  const redeem_player = {
+    mount(body) {
+      body.style.background = 'transparent';
+      body.style.display = 'flex';
+      body.style.alignItems = 'center';
+      body.style.justifyContent = 'center';
+      const video = $create('video');
+      video.playsInline = true;
+      const mainAudio = $create('audio');
+      const scoreAudio = $create('audio');
+      video.style.maxWidth = '100%';
+      video.style.maxHeight = '100%';
+      video.style.display = 'none';
+      body.appendChild(video);
+      body.appendChild(mainAudio);
+      body.appendChild(scoreAudio);
+      return { video, mainAudio, scoreAudio, queue: [], playing: false, activeCount: 0, watchdogs: [] };
+    },
+    onState(h, key, msg, overlayState, wm, winId) {
+      if (key !== 'play_media') return;
+      h.queue.push(msg);
+      playNextMedia(h, wm, winId);
+    },
+  };
+  function isVideoFile(name) { return /\.(mp4|webm|mov)$/i.test(name); }
+  function clearWatchdogs(h) { h.watchdogs.forEach(w => clearTimeout(w)); h.watchdogs = []; }
+  function armWatchdog(h, el, onDone) {
+    const guessMs = (isFinite(el.duration) && el.duration > 0) ? (el.duration * 1000) + 3000 : 60000;
+    h.watchdogs.push(setTimeout(onDone, guessMs));
+  }
+  function playEl(el, url) {
+    return new Promise((resolve) => {
+      el.muted = false; el.src = url; el.currentTime = 0;
+      el.play().then(resolve).catch(() => {
+        el.muted = true;
+        el.play().then(resolve).catch(() => resolve());
+      });
+    });
+  }
+  function trackMediaEl(h, el, wm, winId) {
+    h.activeCount++;
+    const done = () => {
+      el.removeEventListener('ended', done);
+      el.removeEventListener('error', done);
+      h.activeCount = Math.max(0, h.activeCount - 1);
+      if (h.activeCount === 0) finishMediaItem(h, wm, winId);
+    };
+    el.addEventListener('ended', done);
+    el.addEventListener('error', done);
+    armWatchdog(h, el, done);
+  }
+  function playNextMedia(h, wm, winId) {
+    if (h.playing || !h.queue.length) return;
+    h.playing = true;
+    h.activeCount = 0;
+    clearWatchdogs(h);
+    wm.showPopup(winId, true);
+    const item = h.queue.shift();
+    const mainUrl = '/media/' + encodeURIComponent(item.file);
+    const mainIsVideo = isVideoFile(item.file);
+    const mainEl = mainIsVideo ? h.video : h.mainAudio;
+    if (mainIsVideo) { h.mainAudio.pause(); h.video.style.display = 'block'; }
+    else { h.video.pause(); h.video.style.display = 'none'; }
+    playEl(mainEl, mainUrl).then(() => trackMediaEl(h, mainEl, wm, winId));
+    if (item.audio) {
+      const scoreUrl = '/media/' + encodeURIComponent(item.audio);
+      playEl(h.scoreAudio, scoreUrl).then(() => trackMediaEl(h, h.scoreAudio, wm, winId));
+    }
+  }
+  function finishMediaItem(h, wm, winId) {
+    clearWatchdogs(h);
+    h.video.style.display = 'none';
+    h.video.pause(); h.mainAudio.pause(); h.scoreAudio.pause();
+    h.video.removeAttribute('src'); h.mainAudio.removeAttribute('src'); h.scoreAudio.removeAttribute('src');
+    h.playing = false;
+    wm.showPopup(winId, false);
+    playNextMedia(h, wm, winId);
+  }
+
+  // ── pngtuber (topmost) ───────────────────────────────────────────────
+  const pngtuber = {
+    mount(body) {
+      body.style.background = 'transparent';
+      body.style.display = 'flex';
+      body.style.alignItems = 'flex-end';
+      body.style.justifyContent = 'center';
+      const img = $create('img', 'pngtuber-frame');
+      body.appendChild(img);
+      return {
+        img, assets: {}, currentState: null, currentSrc: {},
+        chattingUntil: 0, ttsState: {}, statusText: '', mood: 'neutral',
+      };
+    },
+    onState(h, key, msg) {
+      if (key === 'assets') { h.assets = msg; applyPngtuberState(h); return; }
+      if (key === 'tts_state') { h.ttsState = msg; applyPngtuberState(h); return; }
+      if (key === 'status') { h.statusText = msg.value || ''; applyPngtuberState(h); return; }
+      if (key === 'pngtuber') { h.mood = (msg && msg.mood) || 'neutral'; applyPngtuberState(h); return; }
+      if (key === 'chat') { h.chattingUntil = Date.now() + 4000; applyPngtuberState(h); return; }
+      if (key === 'tick') { applyPngtuberState(h); return; }
+    },
+  };
+  function pickPngtuberImage(h, stateName) {
+    const list = h.assets[stateName];
+    if (!list || !list.length) return null;
+    if (!h.currentSrc[stateName] || list.length === 1) {
+      h.currentSrc[stateName] = list[Math.floor(Math.random() * list.length)];
+    }
+    return h.currentSrc[stateName];
+  }
+  function resolvePngtuberState(h) {
+    const tts = h.ttsState || {};
+    if (tts.speaking) return 'speaking';
+    if (tts.generating) return 'generating';
+    if (Date.now() < h.chattingUntil) return 'chatting';
+    if ((h.statusText || '').toLowerCase().includes('playing:')) return 'playing';
+    return h.mood || 'neutral';
+  }
+  function applyPngtuberState(h) {
+    const next = resolvePngtuberState(h);
+    if (next === h.currentState) return;
+    h.currentState = next;
+    if (!['neutral', 'bored', 'sad', 'cheerful'].includes(next)) delete h.currentSrc[next];
+    const src = pickPngtuberImage(h, next) || pickPngtuberImage(h, 'neutral');
+    if (src) {
+      h.img.style.opacity = 0;
+      setTimeout(() => { h.img.src = src; h.img.style.opacity = 1; }, 100);
+    }
+    h.img.classList.toggle('speaking', next === 'speaking');
+  }
+
+  return {
+    now_playing, lyrics, status, socials, message_bar, screen, chat, extra, spacer,
+    alerts, redeem_player, pngtuber,
+    escapeHtml,
+  };
+})();
+
+</script>
+<script>
+const WS_URL = `ws://${location.hostname}:8877`;
+let ws = null;
+let state = {};
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 1800);
+}
+function send(msg) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(msg));
+  else toast('not connected to streamd');
+}
+function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── tabs ──────────────────────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    btn.classList.add('active');
+    $('view-' + btn.dataset.view).classList.add('active');
+    if (btn.dataset.view === 'layout') fitStage();
+  };
+});
+
+// ── layout editor ─────────────────────────────────────────────────────
+const DEFAULT_LAYOUT = [
+  { id: 'now_playing', panel: 'now_playing', title: 'now playing', x: 1040, y: 20,  w: 380, h: 160, z: 1, kind: 'normal' },
+  { id: 'lyrics',      panel: 'lyrics',      title: 'lyrics',      x: 1040, y: 190, w: 380, h: 160, z: 1, kind: 'normal' },
+  { id: 'status',      panel: 'status',      title: 'pc status',   x: 20,   y: 900, w: 220, h: 130, z: 1, kind: 'normal' },
+    { id: 'socials',     panel: 'socials',     title: 'socials',     x: 20,   y: 780, w: 220, h: 70,  z: 1, kind: 'normal', opts: { social_lines: 'twitter: @vanillyn_net\ndiscord: @vanillyn' } },
+    { id: 'message_bar', panel: 'message_bar', title: 'message',    x: 20,   y: 740, w: 220, h: 36,  z: 1, kind: 'normal', opts: { text_color: '#d8dee2', bg_color: '#0a0c0d', font_size: 13, font_family: 'monospace' } },
+  { id: 'alerts',      panel: 'alerts',      title: 'alert',       x: 530,  y: 40,  w: 420, h: 140, z: 500, kind: 'popup', visible: false },
+  { id: 'redeem_player', panel: 'redeem_player', title: 'redeem',  x: 460,  y: 300, w: 520, h: 440, z: 500, kind: 'popup', visible: false },
+  { id: 'pngtuber',    panel: 'pngtuber',    title: 'pngtuber',    x: 900,  y: 500, w: 400, h: 580, z: 999999, kind: 'topmost' },
+];
+
+let selectedWinId = null;
+let idCounter = 1;
+const editorHandles = new Map();
+
+const wm = createWM({
+  stageEl: document.getElementById('stage'),
+  editable: true,
+  onSelect: (id) => { selectedWinId = id; refreshWinEditor(); refreshWinList(); },
+  onLayoutChange: (layout) => {
+    send({ cmd: 'wm_layout_set', layout });
+    refreshWinList();
+  },
+  renderBody: (win, bodyEl) => {
+    const renderer = Panels[win.panel];
+    if (!renderer) { bodyEl.textContent = 'unknown: ' + win.panel; return; }
+    const h = renderer.mount(bodyEl, win, {});
+    editorHandles.set(win.id, h);
+    if (win.panel === 'pngtuber') {
+      fetch('/pngtuber-list').then(r => r.ok ? r.json() : {}).then(a => {
+        if (renderer && h && renderer.onState) renderer.onState(h, 'assets', a, {}, wm, win.id);
+      }).catch(() => {});
+    }
+  },
+});
+
+function fitStage() {
+  const wrap = $('layout-stage-wrap');
+  const inner = $('layout-stage-inner');
+  const scale = Math.min(wrap.clientWidth / 1440, wrap.clientHeight / 1080);
+  inner.style.transform = `scale(${scale})`;
+}
+window.addEventListener('resize', fitStage);
+
+function refreshWinList() {
+  const list = $('win-list');
+  list.innerHTML = '';
+  wm.forEachWindow(win => {
+    const item = document.createElement('div');
+    item.className = 'win-list-item' + (win.id === selectedWinId ? ' selected' : '');
+    item.innerHTML = `<span>${escapeHtml(win.title)} <span style="color:var(--text-dimmer)">[${win.panel}]</span></span><span class="rm">✕</span>`;
+    item.onclick = (e) => {
+      if (e.target.classList.contains('rm')) { wm.removeWindow(win.id); if (selectedWinId === win.id) { selectedWinId = null; refreshWinEditor(); } return; }
+      wm.select(win.id);
+      wm.bringToFront(win.id);
+    };
+    list.appendChild(item);
+  });
+}
+
+function refreshWinEditor() {
+  const ed = $('win-editor');
+  if (!selectedWinId) { ed.style.display = 'none'; return; }
+  const win = wm.getWindow(selectedWinId);
+  if (!win) { ed.style.display = 'none'; return; }
+  ed.style.display = '';
+  $('ed-x').value = win.x; $('ed-y').value = win.y;
+  $('ed-w').value = win.w; $('ed-h').value = win.h;
+  $('ed-title').value = win.title;
+  $('ed-text-color').value = win.opts && win.opts.text_color || '#d8dee2';
+  $('ed-bg-color').value = win.opts && win.opts.bg_color || '#0a0c0d';
+  $('ed-font-size').value = win.opts && win.opts.font_size || 13;
+  $('ed-font-family').value = win.opts && win.opts.font_family || 'monospace';
+  $('ed-social-lines').value = win.opts && win.opts.social_lines || 'twitter: @vanillyn_net\ndiscord: @vanillyn';
+  const spacerRow = $('ed-spacer-kind-row');
+  const socialRow = $('ed-social-lines-row');
+  if (win.panel === 'spacer') {
+    spacerRow.style.display = '';
+    $('ed-spacer-kind').value = (win.opts && win.opts.spacer_kind) || 'bootlog';
+  } else {
+    spacerRow.style.display = 'none';
+  }
+  if (win.panel === 'socials') {
+    socialRow.style.display = '';
+  } else {
+    socialRow.style.display = 'none';
+  }
+}
+
+$('btn-apply-edit').onclick = () => {
+  if (!selectedWinId) return;
+  const win = wm.getWindow(selectedWinId);
+  if (!win) return;
+  const patch = {
+    x: parseInt($('ed-x').value, 10) || 0,
+    y: parseInt($('ed-y').value, 10) || 0,
+    w: parseInt($('ed-w').value, 10) || 80,
+    h: parseInt($('ed-h').value, 10) || 60,
+    title: $('ed-title').value.trim() || win.panel,
+  };
+  const opts = { ...(win.opts || {}) };
+  opts.text_color = $('ed-text-color').value || '#d8dee2';
+  opts.bg_color = $('ed-bg-color').value || '#0a0c0d';
+  opts.font_size = parseInt($('ed-font-size').value, 10) || 13;
+  opts.font_family = $('ed-font-family').value || 'monospace';
+  if (win.panel === 'spacer') {
+    opts.spacer_kind = $('ed-spacer-kind').value;
+  }
+  if (win.panel === 'socials') {
+    opts.social_lines = $('ed-social-lines').value.trim();
+  }
+  patch.opts = opts;
+  wm.updateWindow(selectedWinId, patch);
+  refreshWinList();
+};
+
+$('btn-remove-selected').onclick = () => {
+  if (!selectedWinId) return;
+  wm.removeWindow(selectedWinId);
+  selectedWinId = null;
+  refreshWinEditor();
+};
+
+const PANEL_TITLES = {
+  now_playing: 'now playing', lyrics: 'lyrics', status: 'pc status', socials: 'socials',
+  message_bar: 'message bar', screen: 'screen', chat: 'chat', extra: 'extra',
+  spacer: 'log', pngtuber: 'pngtuber', alerts: 'alert', redeem_player: 'redeem',
+};
+
+$('btn-add-window').onclick = () => {
+  const panelType = $('add-panel-type').value;
+  const id = panelType + '_' + (idCounter++);
+  const isPopup = panelType === 'alerts' || panelType === 'redeem_player';
+  const isTopmost = panelType === 'pngtuber';
+  const win = {
+    id, panel: panelType, title: PANEL_TITLES[panelType] || panelType,
+    x: 60, y: 60, w: 320, h: 220,
+    kind: isTopmost ? 'topmost' : (isPopup ? 'popup' : 'normal'),
+    visible: !isPopup,
+  };
+  if (panelType === 'spacer') win.opts = { spacer_kind: 'bootlog' };
+  wm.addWindow(win);
+  wm.select(id);
+  refreshWinList();
+};
+
+$('btn-reset-layout').onclick = () => {
+  wm.setLayout(DEFAULT_LAYOUT);
+  send({ cmd: 'wm_layout_set', layout: wm.getLayout() });
+  selectedWinId = null;
+  refreshWinEditor();
+  refreshWinList();
+  toast('layout reset');
+};
+
+// ── websocket + existing panel wiring ────────────────────────────────
+const STATUS_PRESETS = [
+  ["starting soon", "starting"], ["be right back", "brb"], ["just chatting", "live"],
+  ["playing: ", "live"], ["ending soon", "ending"], ["brb – technical", "brb"], ["offline", "live"],
+];
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+  ws.onopen = () => { $('ws-dot').classList.add('on'); };
+  ws.onclose = () => { $('ws-dot').classList.remove('on'); setTimeout(connect, 2000); };
+  ws.onerror = () => ws.close();
+  ws.onmessage = ev => {
+    let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+    handleMessage(msg);
+  };
+}
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'init':
+      state = msg.state;
+      renderAll();
+      if (Array.isArray(state.wm_layout) && state.wm_layout.length) {
+        wm.setLayout(state.wm_layout, { silent: true });
+      } else {
+        wm.setLayout(DEFAULT_LAYOUT, { silent: true });
+      }
+      refreshWinList();
+      fitStage();
+      break;
+    case 'wm_layout':
+      // another client (or the overlay reconnecting) changed the layout —
+      // only adopt it if we don't have local unsent drag in progress
+      wm.setLayout(msg.layout, { silent: true });
+      refreshWinList();
+      break;
+    case 'status': state.status = msg.value; renderStatus(); break;
+    case 'message': state.message = msg.value; broadcastToAllPanels('message', { value: msg.value }); break;
+    case 'stats': state.stats = msg; renderStats(); break;
+    case 'tts_state': state.tts = msg.tts; renderTts(); break;
+    case 'schedule': state.schedule = msg.schedule; renderSchedule(); break;
+    case 'twitch_stats': state.twitch = msg.twitch; renderTwitch(); break;
+    case 'obs_state': state.obs = msg.obs; renderObs(); break;
+    case 'chat':
+      state.chat = state.chat || [];
+      state.chat.push(msg);
+      if (state.chat.length > 20) state.chat.shift();
+      renderChat();
+      break;
+    case 'commands_updated': state.commands = msg.commands; renderCommands(); break;
+    case 'pngtuber': state.pngtuber = msg.pngtuber; renderMood(); break;
+    case 'redeem_alert': toast(`redeem: ${msg.user} → ${msg.reward}`); break;
+    case 'alert': toast(`${msg.alert}: ${msg.message}${msg.sub ? ' (' + msg.sub + ')' : ''}`); break;
+    case 'follow': toast(`follow: ${msg.user}`); break;
+    case 'raid': toast(`raid: ${msg.user} (${msg.viewers || 0})`); break;
+  }
+}
+
+function broadcastToAllPanels(key, msg) {
+  wm.forEachWindow(win => {
+    const renderer = Panels[win.panel];
+    const h = editorHandles.get(win.id);
+    if (renderer && h && renderer.onState) {
+      renderer.onState(h, key, msg, {}, wm, win.id);
+    }
+  });
+}
+
+function renderAll() {
+  renderStatus(); renderStats(); renderTts(); renderSchedule();
+  renderTwitch(); renderObs(); renderChat(); renderCommands(); renderMood();
+  if (state.message !== undefined) broadcastToAllPanels('message', { value: state.message });
+}
+
+function pctClass(pct) { if (pct >= 85) return 'crit'; if (pct >= 65) return 'warn'; return ''; }
+function parsePct(raw) { if (!raw) return 0; const m = String(raw).match(/([\d.]+)\s*%/); return m ? parseFloat(m[1]) : 0; }
+
+function renderStatus() {}
+
+function renderStats() {
+  const s = state.stats || {};
+  for (const key of ['cpu', 'mem', 'gpu']) {
+    const raw = s[key] ?? '…';
+    $('stat-' + key + '-val').textContent = raw;
+    const pct = parsePct(raw);
+    const fill = $('stat-' + key);
+    fill.style.width = pct + '%';
+    fill.className = 'stat-fill ' + pctClass(pct);
+  }
+  const wpmRaw = s.wpm ?? '…';
+  $('stat-wpm-val').textContent = wpmRaw;
+  const wpmNum = parseInt(wpmRaw) || 0;
+  $('stat-wpm').style.width = Math.min(100, wpmNum / 120 * 100) + '%';
+}
+
+function renderTts() {
+  const t = state.tts || {};
+  const label = t.loading ? 'loading model' : (t.generating ? 'generating' : (t.speaking ? 'speaking' : (t.enabled ? 'ready' : 'disabled')));
+  $('tts-tag').textContent = label;
+  $('tts-queue').textContent = t.queue_len ?? 0;
+}
+
+function renderSchedule() {
+  const s = state.schedule || {};
+  $('sw-scheduled').classList.toggle('on', !!s.scheduled_today);
+  if (document.activeElement !== $('offline-text-input')) $('offline-text-input').value = s.offline_text || '';
+}
+
+function renderTwitch() {
+  const t = state.twitch || {};
+  $('kv-twitch').textContent = t.connected ? 'connected' : 'disconnected';
+  $('kv-twitch').className = 'v ' + (t.connected ? 'on' : 'off');
+  $('kv-followers').textContent = t.followers ?? '…';
+  $('kv-subs').textContent = t.subscribers ?? '…';
+  $('kv-viewers').textContent = t.viewers ?? '…';
+}
+
+function renderObs() {
+  const o = state.obs || {};
+  $('obs-tag').textContent = o.connected ? (o.streaming ? 'streaming' : 'connected') : 'disconnected';
+  const list = $('obs-scenes');
+  list.innerHTML = '';
+  (o.scenes || []).forEach(sceneName => {
+    const div = document.createElement('div');
+    div.className = 'scene-item' + (sceneName === o.current_scene ? ' active' : '');
+    div.textContent = sceneName;
+    div.onclick = () => send({ cmd: 'obs_set_scene', value: sceneName });
+    list.appendChild(div);
+  });
+  if (!list.children.length) list.innerHTML = '<div class="empty" style="color:var(--text-dimmer);font-size:11px;">no scenes</div>';
+  const audio = $('obs-audio');
+  audio.innerHTML = '';
+  (o.audio || []).forEach(a => {
+    const name = typeof a === 'string' ? a : (a.inputName || a.name || 'input');
+    const muted = typeof a === 'object' ? !!a.muted : false;
+    const row = document.createElement('div');
+    row.className = 'audio-item';
+    row.innerHTML = `<span>${escapeHtml(name)}</span>`;
+    const btn = document.createElement('button');
+    btn.style.width = 'auto'; btn.style.marginTop = '0';
+    btn.textContent = muted ? 'unmute' : 'mute';
+    btn.onclick = () => send({ cmd: 'obs_toggle_mute', input: name });
+    row.appendChild(btn);
+    audio.appendChild(row);
+  });
+}
+
+function renderChat() {
+  const log = $('chatlog');
+  const chat = state.chat || [];
+  $('chat-count').textContent = chat.length;
+  if (!chat.length) { log.innerHTML = '<div class="empty">waiting for chat…</div>'; return; }
+  log.innerHTML = chat.map(c => `<div><span class="chat-user" style="color:${c.color || '#d8dee2'}">${escapeHtml(c.user)}</span>: <span class="chat-text">${escapeHtml(c.text)}</span></div>`).join('');
+  log.scrollTop = log.scrollHeight;
+}
+
+function renderCommands() {
+  const cmds = state.commands || {};
+  const tbody = $('cmd-tbody');
+  tbody.innerHTML = '';
+  Object.entries(cmds).forEach(([trigger, data]) => {
+    const tr = document.createElement('tr');
+    const isBuiltin = data.type === 'builtin';
+    tr.innerHTML = `<td class="trig">${trigger}</td><td>${data.type || ''}</td><td>${data.enabled === false ? 'off' : 'on'}</td><td>${escapeHtml(data.response || data.description || '')}</td><td>${isBuiltin ? '' : '<span class="del">✕</span>'}</td>`;
+    tr.onclick = (e) => {
+      if (e.target.classList.contains('del')) { send({ cmd: 'command_delete', trigger }); return; }
+      if (isBuiltin) { send({ cmd: 'command_set', trigger, data: { ...data, enabled: !(data.enabled !== false) } }); return; }
+      $('cmd-trigger').value = trigger; $('cmd-response').value = data.response || '';
+    };
+    tbody.appendChild(tr);
+  });
+}
+
+const MOODS = ['neutral', 'bored', 'sad', 'cheerful'];
+function renderMood() {
+  const grid = $('mood-grid');
+  const current = (state.pngtuber || {}).mood || 'neutral';
+  grid.innerHTML = '';
+  MOODS.forEach(m => {
+    const b = document.createElement('button');
+    b.style.width = 'auto';
+    b.textContent = m;
+    if (m === current) b.classList.add('primary');
+    b.onclick = () => send({ cmd: 'set_pngtuber_mood', value: m });
+    grid.appendChild(b);
+  });
+}
+
+function renderPresets() {
+  const box = $('preset-chips');
+  STATUS_PRESETS.forEach(([label]) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.textContent = label;
+    chip.onclick = () => {
+      if (label.endsWith(': ')) { $('status-input').value = label; $('status-input').focus(); }
+      else send({ cmd: 'status', value: label });
+    };
+    box.appendChild(chip);
+  });
+}
+
+$('btn-status-send').onclick = () => { const v = $('status-input').value.trim(); if (v) { send({ cmd: 'status', value: v }); $('status-input').value = ''; } };
+$('status-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-status-send').click(); });
+$('btn-message-send').onclick = () => { const v = $('message-input').value.trim(); if (v) { send({ cmd: 'message', value: v }); $('message-input').value = ''; } };
+$('message-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-message-send').click(); });
+$('btn-message-clear').onclick = () => send({ cmd: 'clear_message' });
+$('sw-scheduled').onclick = () => send({ cmd: 'set_scheduled', value: !$('sw-scheduled').classList.contains('on') });
+$('offline-text-input').addEventListener('change', () => send({ cmd: 'set_offline_text', value: $('offline-text-input').value }));
+$('btn-tts-speak').onclick = () => { const v = $('tts-input').value.trim(); if (v) { send({ cmd: 'tts_say', value: v }); $('tts-input').value = ''; } };
+$('tts-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-tts-speak').click(); });
+$('btn-tts-skip').onclick = () => send({ cmd: 'tts_skip' });
+$('btn-tts-clear').onclick = () => send({ cmd: 'tts_clear' });
+$('btn-tts-toggle').onclick = () => send({ cmd: 'tts_toggle' });
+$('btn-obs-stream').onclick = () => send({ cmd: 'obs_toggle_stream' });
+$('btn-obs-record').onclick = () => send({ cmd: 'obs_toggle_record' });
+$('btn-obs-refresh').onclick = () => send({ cmd: 'obs_refresh' });
+$('btn-chat-send').onclick = () => { const v = $('chat-send-input').value.trim(); if (v) { send({ cmd: 'send_chat', value: v }); $('chat-send-input').value = ''; } };
+$('chat-send-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-chat-send').click(); });
+$('btn-cmd-save').onclick = () => {
+  let trigger = $('cmd-trigger').value.trim().toLowerCase();
+  const response = $('cmd-response').value.trim();
+  if (!trigger) { toast('trigger is required'); return; }
+  if (!trigger.startsWith('!')) trigger = '!' + trigger;
+  send({ cmd: 'command_set', trigger, data: { type: 'custom', enabled: true, response } });
+  toast('saved ' + trigger);
+  $('cmd-trigger').value = ''; $('cmd-response').value = '';
+};
+$('btn-cmd-delete').onclick = () => {
+  let trigger = $('cmd-trigger').value.trim().toLowerCase();
+  if (!trigger) { toast('no trigger entered'); return; }
+  if (!trigger.startsWith('!')) trigger = '!' + trigger;
+  send({ cmd: 'command_delete', trigger });
+  $('cmd-trigger').value = ''; $('cmd-response').value = '';
+};
+$('btn-cmd-clear').onclick = () => { $('cmd-trigger').value = ''; $('cmd-response').value = ''; };
+
+setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('en-GB'); }, 1000);
+
+renderPresets();
+connect();
+window.addEventListener('resize', fitStage);
+setTimeout(fitStage, 50);
+</script>
+
+</body>
+</html>
