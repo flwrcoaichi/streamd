@@ -173,7 +173,15 @@ async def ws_handler(ws) -> None:
                     save_commands(new_cmds)
                     log.info("commands updated (%d)", len(new_cmds))
                     await broadcast({"type": "commands_updated", "commands": new_cmds})
-
+                elif cmd == "wm_layout_set":
+                    layout = msg.get("layout", [])
+                    if isinstance(layout, list):
+                        state.data["wm_layout"] = layout
+                        try:
+                            write_atomic(BASE_DIR / "wm_state.json", json.dumps({"wm_layout": layout}, indent=2))
+                        except Exception as exc:
+                            log.warning("wm_layout_set persist failed: %s", exc)
+                        await broadcast({"type": "wm_layout", "layout": layout})
                 elif cmd == "command_set":
                     trigger = msg.get("trigger", "").lower()
                     cmd_data = msg.get("data", {})

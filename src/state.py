@@ -70,6 +70,7 @@ class StreamState:
             "pngtuber": {
                 "mood": "neutral",
             },
+            "wm_layout": [],
             "rewards": {},
             "redeem_log": [],
             "checkins": {},
@@ -82,6 +83,7 @@ class StreamState:
                 "warned": False,
                 "in_ad_break": False,
             },
+            
         }
 
         self.wpm_lock = threading.Lock()
