@@ -21,7 +21,22 @@ WS_PORT = 8877
 HTTP_PORT = 8878
 
 BASE_DIR = _BASE_DIR_EARLY
+
+# overlay files are looked up across multiple directories, in priority
+# order: an explicit STREAM_OVERLAY_DIR env var (if set) takes precedence,
+# then a local `./overlay` directory next to the daemon (so vanillyn can
+# edit/drop files there without touching C:\Stream), then the classic
+# C:\Stream\overlays location as a final fallback. see http_server.py's
+# _resolve_overlay_file() for how these are actually searched.
+_REPO_OVERLAY_DIR = pathlib.Path(__file__).resolve().parent.parent / "overlay"
 OVERLAY_DIR = pathlib.Path(os.environ.get("STREAM_OVERLAY_DIR", r"C:\Stream\overlays"))
+OVERLAY_SEARCH_DIRS = []
+if os.environ.get("STREAM_OVERLAY_DIR"):
+    OVERLAY_SEARCH_DIRS.append(pathlib.Path(os.environ["STREAM_OVERLAY_DIR"]))
+OVERLAY_SEARCH_DIRS.append(_REPO_OVERLAY_DIR)
+if pathlib.Path(r"C:\Stream\overlays") not in OVERLAY_SEARCH_DIRS:
+    OVERLAY_SEARCH_DIRS.append(pathlib.Path(r"C:\Stream\overlays"))
+
 PNGTUBER_DIR = pathlib.Path(os.environ.get("STREAM_PNGTUBER_DIR", r"C:\Stream\pngtuber"))
 PNGTUBER_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -66,11 +81,16 @@ COMMANDS_PATH = BASE_DIR / "commands.json"
 REWARDS_PATH = BASE_DIR / "rewards.json"
 CHECKINS_PATH = BASE_DIR / "checkins.json"
 DEATHS_PATH = BASE_DIR / "deaths.json"
+CANVAS_PATH = BASE_DIR / "canvas.json"
+LAYOUTS_DIR = pathlib.Path(os.environ.get("STREAM_LAYOUTS_DIR", str(BASE_DIR / "layouts")))
+LAYOUTS_DIR.mkdir(parents=True, exist_ok=True)
 REDEEMS_DIR = pathlib.Path(os.environ.get("STREAM_REDEEMS_DIR", str(BASE_DIR / "redeems")))
 REDEEMS_DIR.mkdir(parents=True, exist_ok=True)
 
 OBS_WS_URL = os.environ.get("OBS_WS_URL", "ws://127.0.0.1:4455")
 OBS_WS_PASSWORD = os.environ.get("OBS_WS_PASSWORD", "")
+OBS_WORDS_SCENE = os.environ.get("OBS_WORDS_SCENE", "").strip()
+OBS_WORDS_SOURCE = os.environ.get("OBS_WORDS_SOURCE", "Words").strip() or "Words"
 
 TWITCH_CLIENT_ID = os.environ.get("TWITCH_CLIENT_ID", "")
 TWITCH_CLIENT_SECRET = os.environ.get("TWITCH_CLIENT_SECRET", "")
@@ -132,6 +152,25 @@ AD_REMINDER_START_MESSAGE = os.environ.get(
 AD_REMINDER_END_MESSAGE = os.environ.get(
     "AD_REMINDER_END_MESSAGE", ""
 )
+
+# ── words on stream (wos.gg) ────────────────────────────────────────────
+WOS_URL = os.environ.get("WOS_URL", "https://wos.gg/")
+
+# ── canvas (collaborative pixel art) ────────────────────────────────────
+CANVAS_SIZE = int(os.environ.get("CANVAS_SIZE", "100"))
+CANVAS_PUBLIC_PORT = int(os.environ.get("CANVAS_PUBLIC_PORT", "1760"))
+CANVAS_PUBLIC_BASE_URL = os.environ.get("CANVAS_PUBLIC_BASE_URL", f"http://localhost:{CANVAS_PUBLIC_PORT}")
+CANVAS_PUBLIC_COOKIE = "streamd_canvas_session"
+CANVAS_PUBLIC_REDIRECT_PATH = "/canvas/callback"
+CANVAS_PUBLIC_TWITCH_SCOPE = "user:read:email"
+CANVAS_SHOW_SECONDS = int(os.environ.get("CANVAS_SHOW_SECONDS", "5"))
+CANVAS_MIN_INTERVAL_MIN = int(os.environ.get("CANVAS_MIN_INTERVAL_MIN", "30"))
+CANVAS_MAX_INTERVAL_MIN = int(os.environ.get("CANVAS_MAX_INTERVAL_MIN", "60"))
+CANVAS_PIXELS_REDEEM_SMALL = int(os.environ.get("CANVAS_PIXELS_REDEEM_SMALL", "1"))
+CANVAS_PIXELS_REDEEM_LARGE = int(os.environ.get("CANVAS_PIXELS_REDEEM_LARGE", "10"))
+CANVAS_PIXELS_PER_GIFT = int(os.environ.get("CANVAS_PIXELS_PER_GIFT", "10"))
+CANVAS_PIXELS_PER_SUB = int(os.environ.get("CANVAS_PIXELS_PER_SUB", "10"))
+CANVAS_PIXELS_PER_100_BITS = int(os.environ.get("CANVAS_PIXELS_PER_100_BITS", "1"))
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "") or os.environ.get("HUGGINGFACE_TOKEN", "")
 if HF_TOKEN:

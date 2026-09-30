@@ -12,6 +12,7 @@ from config import log, COMMANDS_PATH, CHAN, DEATHS_PATH
 from state import state
 from broadcast import broadcast_sync, send_chat
 from conditions import check_conditions
+from obs import trigger_words_toggle
 
 _DEFAULT_COMMANDS = {
     "!throw": {
@@ -53,6 +54,23 @@ _DEFAULT_COMMANDS = {
         "type": "builtin",
         "enabled": True,
         "description": "add or remove deaths (!death [amount])",
+    },
+    "!words": {
+        "type": "builtin",
+        "enabled": True,
+        "permission": "broadcaster",
+        "description": "shows the words-on-stream (wos.gg) window (broadcaster only)",
+    },
+    "!endwords": {
+        "type": "builtin",
+        "enabled": True,
+        "permission": "broadcaster",
+        "description": "hides the words-on-stream window and unloads its audio (broadcaster only)",
+    },
+    "!canvas": {
+        "type": "builtin",
+        "enabled": True,
+        "description": "shows the collaborative pixel canvas for a few seconds",
     },
 }
 
@@ -548,9 +566,20 @@ def dispatch_chat_command(user: str, text: str, badges: list | None = None) -> N
             count = deaths[category_key]
             send_chat(f"deaths ({category_key}): {count}")
             broadcast_sync({"type": "deaths", "deaths": deaths})
+        elif trigger == "!words":
+            state.data["words"]["active"] = True
+            trigger_words_toggle(True)
+            broadcast_sync({"type": "words_state", "words": state.data["words"]})
+        elif trigger == "!endwords":
+            state.data["words"]["active"] = False
+            trigger_words_toggle(False)
+            broadcast_sync({"type": "words_state", "words": state.data["words"]})
+        elif trigger == "!canvas":
+            from canvas import show_canvas
+            show_canvas()
     elif ctype == "custom":
         response = cmd.get("response", "")
         if response:
             response = _render_response(trigger, response, user, arg)
             send_chat(response)
-            broadcast_sync({"type": "bot_say", "text": response})
+            broadcast_sync({"type": "bot_say", "text": response})   

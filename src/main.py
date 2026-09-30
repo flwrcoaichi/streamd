@@ -18,7 +18,7 @@ from tts import run_tts_worker, run_hotkeys
 from chat_irc import run_stats_thread, run_chat_thread, run_wpm_tracker
 from ytmusic_bridge import run_ytmusic_thread, run_companion_pairing_flow
 from http_server import start_http_server
-from ws_handler import ws_handler
+from ws_handler import ws_handler, run_key_panel_listener
 
 state.data["commands"] = load_commands()
 state.data["rewards"] = load_rewards()
@@ -46,8 +46,8 @@ async def main() -> None:
     log.info("pngtuber dir: %s (set STREAM_PNGTUBER_DIR to override)", PNGTUBER_DIR)
 
     for target in (run_stats_thread, run_ytmusic_thread, run_chat_thread, run_wpm_tracker,
-                   run_tts_worker, run_hotkeys, run_twitch_stats_thread, run_discord_rpc_thread,
-                   run_twitch_token_refresh_thread, run_ad_schedule_thread):
+                   run_key_panel_listener, run_tts_worker, run_hotkeys, run_twitch_stats_thread,
+                   run_discord_rpc_thread, run_twitch_token_refresh_thread, run_ad_schedule_thread):
         threading.Thread(target=target, daemon=True, name=target.__name__).start()
 
     threading.Thread(target=start_http_server, daemon=True, name="http").start()

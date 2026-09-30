@@ -58,6 +58,18 @@ _DEFAULT_REWARDS = {
         "message": "",
         "description": "searches YouTube Music for the redeemer's input and plays it immediately",
     },
+    "canvas pixel": {
+        "enabled": True,
+        "action": "canvas_credit_small",
+        "message": "{user} earned 1 canvas pixel!",
+        "description": f"grants 1 pixel credit for the collaborative canvas",
+    },
+    "canvas pixels (10)": {
+        "enabled": True,
+        "action": "canvas_credit_large",
+        "message": "{user} earned 10 canvas pixels!",
+        "description": "grants 10 pixel credits for the collaborative canvas",
+    },
 }
 
 
@@ -143,6 +155,7 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     from twitch_api import resolve_twitch_user_id, snooze_next_ad, apply_first_chatter_title_suffix
     from flags import add_flags, roll_flag_gamble, roll_flag_jackpot
     from ytmusic_bridge import request_song
+    from canvas import add_credits
 
     rewards = state.data.get("rewards", {})
     key = None
@@ -216,6 +229,12 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
             template = template or "{user} took a hit and lost flags."
         else:
             template = template or ""
+    elif action == "canvas_credit_small":
+        from config import CANVAS_PIXELS_REDEEM_SMALL
+        add_credits(user, CANVAS_PIXELS_REDEEM_SMALL)
+    elif action == "canvas_credit_large":
+        from config import CANVAS_PIXELS_REDEEM_LARGE
+        add_credits(user, CANVAS_PIXELS_REDEEM_LARGE)
     elif action == "play_media":
         filename = cfg.get("file", "")
         audio_file = cfg.get("audio", "")
@@ -243,3 +262,21 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
         send_chat(message)
 
     _log_redeem(key, user, message)
+
+
+def grant_gift_credits(user: str, gift_count: int) -> None:
+    from config import CANVAS_PIXELS_PER_GIFT
+    from canvas import add_credits
+    add_credits(user, CANVAS_PIXELS_PER_GIFT * max(1, gift_count))
+
+
+def grant_sub_credits(user: str) -> None:
+    from config import CANVAS_PIXELS_PER_SUB
+    from canvas import add_credits
+    add_credits(user, CANVAS_PIXELS_PER_SUB)
+
+
+def grant_cheer_credits(user: str, bits: int) -> None:
+    from config import CANVAS_PIXELS_PER_100_BITS
+    from canvas import add_credits
+    add_credits(user, CANVAS_PIXELS_PER_100_BITS * (bits // 100))

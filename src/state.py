@@ -3,7 +3,7 @@ import threading
 from collections import deque
 from typing import TYPE_CHECKING
 
-from config import TTS_ENABLED_DEFAULT, AD_REMINDER_ENABLED
+from config import TTS_ENABLED_DEFAULT, AD_REMINDER_ENABLED, CANVAS_SIZE
 
 if TYPE_CHECKING:
     from obs import OBSClient
@@ -71,6 +71,7 @@ class StreamState:
                 "mood": "neutral",
             },
             "wm_layout": [],
+            "layouts": {"active": "default", "names": []},
             "rewards": {},
             "redeem_log": [],
             "checkins": {},
@@ -82,8 +83,38 @@ class StreamState:
                 "duration": 0,
                 "warned": False,
                 "in_ad_break": False,
+                "seconds_until": None,
             },
-            
+            "words": {
+                "active": False,
+            },
+            "key_panel": {
+                "shape": "round",
+                "size": 48,
+                "gap": 8,
+                "glow": True,
+                "border": False,
+                "border_color": "#ffffff",
+                "border_width": 1,
+                "corner_radius": None,
+                "active_color": "#7ef7c6",
+                "inactive_color": "#1f2731",
+                "text_color": "#f5f7fa",
+                "keys": [
+                    {"key": "w", "label": "W", "shape": "round", "color": "#7ef7c6", "active": False},
+                    {"key": "a", "label": "A", "shape": "square", "color": "#7ef7c6", "active": False},
+                    {"key": "s", "label": "S", "shape": "square", "color": "#7ef7c6", "active": False},
+                    {"key": "d", "label": "D", "shape": "square", "color": "#7ef7c6", "active": False},
+                    {"key": "space", "label": "SPACE", "shape": "pill", "color": "#8be9fd", "active": False},
+                ],
+                "active_keys": [],
+            },
+            "canvas": {
+                "size": CANVAS_SIZE,
+                "visible": False,
+                "pixels": {},  # "x,y" -> "#rrggbb"
+                "owners": {},  # "x,y" -> "lowercase twitch username"
+            },
         }
 
         self.wpm_lock = threading.Lock()
@@ -118,6 +149,11 @@ class StreamState:
         # commands (commands.py)
         self.cooldowns: dict = {}
         self.counters: dict = {}
+
+        # canvas (canvas.py)
+        self.canvas_lock = threading.Lock()
+        self.canvas_credits: dict = {}  # username.lower() -> pending pixel credits
+        self.canvas_public_sessions: dict[str, dict] = {}
 
     def tts_state(self) -> dict:
         return self.data["tts"]

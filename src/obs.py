@@ -2,11 +2,12 @@ import asyncio
 import base64
 import hashlib
 import json
+import os
 from typing import Any
 
 import websockets
 
-from config import log, OBS_WS_URL, OBS_WS_PASSWORD
+from config import log, OBS_WS_URL, OBS_WS_PASSWORD, OBS_WORDS_SCENE, OBS_WORDS_SOURCE
 from state import state
 from broadcast import broadcast_sync
 
@@ -102,6 +103,57 @@ async def _handle_obs_event(d: dict) -> None:
     broadcast_sync({"type": "obs_state", "obs": obs})
 
 
+async def obs_set_scene_item_visibility(scene_name: str, source_name: str, enabled: bool) -> bool:
+    if not source_name or state.obs is None:
+        return False
+
+    candidates = []
+    if scene_name:
+        candidates.append(scene_name)
+
+    # OBS may render a Browser Source in a different scene than the currently
+    # active program scene. Search the known scene list too, then fall back to
+    # the current scene as a last resort. This makes the toggle work even when
+    # the source is not on the active scene tab.
+    for known in state.data.get("obs", {}).get("scenes", []):
+        if known not in candidates:
+            candidates.append(known)
+
+    for candidate in candidates:
+        try:
+            scene_items = await state.obs.request("GetSceneItemList", {"sceneName": candidate})
+            for item in scene_items.get("sceneItems", []):
+                if item.get("sourceName") == source_name:
+                    await state.obs.request("SetSceneItemEnabled", {
+                        "sceneName": candidate,
+                        "sceneItemId": item.get("sceneItemId"),
+                        "sceneItemEnabled": bool(enabled),
+                    })
+                    return True
+        except Exception:
+            continue
+
+    return False
+
+
+async def obs_set_words_visibility(active: bool) -> None:
+    scene_name = (OBS_WORDS_SCENE or state.data["obs"].get("current_scene", "")).strip()
+    source_name = OBS_WORDS_SOURCE.strip() or "Words"
+    if not source_name:
+        return
+    await obs_set_scene_item_visibility(scene_name, source_name, active)
+
+
+def trigger_words_toggle(active: bool) -> None:
+    if state.main_loop is None:
+        return
+    try:
+        future = asyncio.run_coroutine_threadsafe(obs_set_words_visibility(active), state.main_loop)
+        future.result(timeout=5)
+    except Exception:
+        pass
+
+
 async def obs_refresh_all() -> None:
     obs_client = state.obs
     if obs_client is None:
@@ -184,6 +236,19 @@ async def obs_dispatch(cmd: str, msg: dict) -> None:
             await state.obs.request("ToggleStream")
         elif cmd == "obs_toggle_record":
             await state.obs.request("ToggleRecord")
+        elif cmd == "obs_set_scene_item_enabled":
+            scene_name = msg.get("scene") or msg.get("sceneName") or state.data["obs"].get("current_scene", "")
+            source_name = msg.get("source") or msg.get("sourceName")
+            enabled = bool(msg.get("enabled", msg.get("visible", True)))
+            item_id = msg.get("sceneItemId")
+            if scene_name and item_id is not None:
+                await state.obs.request("SetSceneItemEnabled", {
+                    "sceneName": scene_name,
+                    "sceneItemId": int(item_id),
+                    "sceneItemEnabled": enabled,
+                })
+            elif scene_name and source_name:
+                await obs_set_scene_item_visibility(scene_name, source_name, enabled)
         elif cmd == "obs_refresh":
             await obs_refresh_all()
     except Exception:

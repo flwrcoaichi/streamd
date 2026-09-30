@@ -342,7 +342,7 @@ async def _twitch_eventsub_subscribe(session_id: str, sub_type: str, version: st
 
 async def twitch_eventsub_loop() -> None:
     # import here to avoid a circular import with redeems.py
-    from redeems import handle_redemption
+    from redeems import handle_redemption, grant_gift_credits, grant_sub_credits, grant_cheer_credits
 
     if not TWITCH_CLIENT_ID or not get_twitch_user_token():
         log.info("[twitch] no user token available (run `python main.py --auth`), follow/raid/redeem/sub/bits alerts disabled")
@@ -386,6 +386,11 @@ async def twitch_eventsub_loop() -> None:
                     use_user_token=True,
                 )
                 await _twitch_eventsub_subscribe(
+                    session_id, "channel.subscription.gift", "1",
+                    {"broadcaster_user_id": uid},
+                    use_user_token=True,
+                )
+                await _twitch_eventsub_subscribe(
                     session_id, "channel.cheer", "1",
                     {"broadcaster_user_id": uid},
                     use_user_token=True,
@@ -422,14 +427,21 @@ async def twitch_eventsub_loop() -> None:
                         if not event.get("is_gift"):
                             user = event.get("user_name") or event.get("user_login", "someone")
                             broadcast_sync({"type": "alert", "alert": "sub", "message": user, "sub": event.get("tier", "")})
+                            grant_sub_credits(user)
                     elif sub_type == "channel.subscription.message":
                         user = event.get("user_name") or event.get("user_login", "someone")
                         months = event.get("cumulative_months", 0)
                         broadcast_sync({"type": "alert", "alert": "resub", "message": user, "sub": f"{months} months"})
+                        grant_sub_credits(user)
+                    elif sub_type == "channel.subscription.gift":
+                        user = event.get("user_name") or event.get("user_login", "someone")
+                        total = int(event.get("total", 1) or 1)
+                        grant_gift_credits(user, total)
                     elif sub_type == "channel.cheer":
                         user = event.get("user_name") or event.get("user_login", "anonymous")
                         bits = event.get("bits", 0)
                         broadcast_sync({"type": "alert", "alert": "bits", "message": user, "sub": f"{bits} bits"})
+                        grant_cheer_credits(user, int(bits or 0))
                     elif sub_type == "channel.ad_break.begin":
                         handle_ad_break_begin(event.get("duration_seconds", 0), event.get("is_automatic"))
         except Exception as e:
@@ -470,6 +482,7 @@ def handle_ad_break_begin(duration_seconds, is_automatic) -> None:
     ads_state = state.data["ads"]
     ads_state["in_ad_break"] = True
     ads_state["warned"] = False
+    ads_state["seconds_until"] = 0
     state.data.setdefault("stats", {})
     msg = AD_REMINDER_START_MESSAGE.format(duration=duration_seconds)
     if ads_state.get("enabled", True):
@@ -483,6 +496,7 @@ def handle_ad_break_begin(duration_seconds, is_automatic) -> None:
         except Exception:
             pass
         ads_state["in_ad_break"] = False
+        ads_state["seconds_until"] = None
         if ads_state.get("enabled", True):
             send_chat(AD_REMINDER_END_MESSAGE)
         broadcast_sync({"type": "ad_break", "phase": "end"})
@@ -535,6 +549,7 @@ def run_ad_schedule_thread() -> None:
                 if next_ad_at and not ads_state.get("in_ad_break"):
                     next_ts = _parse_ad_timestamp(next_ad_at)
                     seconds_until = (next_ts - time.time()) if next_ts is not None else None
+                    ads_state["seconds_until"] = seconds_until
 
                     if seconds_until is not None and 0 < seconds_until <= AD_REMINDER_WARN_SECONDS and not ads_state.get("warned"):
                         ads_state["warned"] = True

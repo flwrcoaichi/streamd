@@ -1,0 +1,161 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>redeem player</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; width: 100vw; height: 100vh; }
+  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+  video, audio { max-width: 100vw; max-height: 100vh; display: none; }
+  video.active { display: block; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="player" playsinline></video>
+  <audio id="mainAudio"></audio>
+  <audio id="scoreAudio"></audio>
+</div>
+<script>
+// tangia-like redeem player — connects to the same control websocket as the
+// rest of the overlays and plays whatever file a "play_media" broadcast
+// points at. add this as a Browser Source in OBS (transparent bg), sized
+// to your scene. files live in the /media/ directory next to the script
+// (STREAM_MEDIA_DIR / redeems/media by default).
+//
+// a redeem can specify:
+//   file  — a video (mp4/webm/mov) or audio (mp3/wav/ogg) file, required
+//   audio — an optional second audio file to play AT THE SAME TIME as
+//           `file` (e.g. score a silent/muted clip with a specific song,
+//           or layer music under a video that already has its own sound)
+const WS_URL = "ws://localhost:8877";
+const video      = document.getElementById("player");
+const mainAudio  = document.getElementById("mainAudio");   // plays `file` when it's audio-only
+const scoreAudio = document.getElementById("scoreAudio");  // plays the optional `audio` companion track
+
+// OBS's embedded Chromium enforces the same autoplay-with-sound rules as a
+// regular browser: unmuted play() can get silently rejected until the page
+// has "user activation". we try unmuted first (so a video's own audio
+// track and any companion track actually play), and only fall back to
+// muted playback if the browser blocks it — better a silent clip than a
+// stuck queue.
+let queue = [];
+let playing = false;
+let watchdogs = [];
+
+function isVideoFile(name) {
+  return /\.(mp4|webm|mov)$/i.test(name);
+}
+
+function clearWatchdogs() {
+  for (const w of watchdogs) clearTimeout(w);
+  watchdogs = [];
+}
+
+function armWatchdog(el, onDone) {
+  // belt-and-suspenders: if 'ended'/'error' never fire for some reason
+  // (codec quirk, OBS source getting hidden/shown, etc), this guarantees
+  // the queue un-sticks itself instead of dying after one play forever.
+  const guessMs = (isFinite(el.duration) && el.duration > 0)
+    ? (el.duration * 1000) + 3000
+    : 60000;
+  watchdogs.push(setTimeout(onDone, guessMs));
+}
+
+// plays `el` with `url`, trying unmuted first and falling back to muted
+// autoplay if the browser rejects it. resolves once playback has actually
+// started (or been given up on).
+function playEl(el, url) {
+  return new Promise((resolve) => {
+    el.muted = false;
+    el.src = url;
+    el.currentTime = 0;
+    el.play().then(resolve).catch(() => {
+      console.warn("unmuted play blocked, retrying muted:", url);
+      el.muted = true;
+      el.play().then(resolve).catch((err) => {
+        console.error("play failed even muted, skipping:", url, err);
+        resolve();
+      });
+    });
+  });
+}
+
+// tracks how many of the (up to 2) concurrently-playing elements for the
+// current queue item are still going, so we only advance the queue once
+// everything for this item has actually finished — e.g. a companion song
+// longer than its video won't get cut off early.
+let activeCount = 0;
+
+function trackElement(el) {
+  activeCount++;
+  const done = () => {
+    el.removeEventListener("ended", done);
+    el.removeEventListener("error", done);
+    activeCount = Math.max(0, activeCount - 1);
+    if (activeCount === 0) finishItem();
+  };
+  el.addEventListener("ended", done);
+  el.addEventListener("error", done);
+  armWatchdog(el, done);
+}
+
+function playNext() {
+  if (playing || queue.length === 0) return;
+  playing = true;
+  activeCount = 0;
+  clearWatchdogs();
+  const item = queue.shift();
+  const mainUrl = "/media/" + encodeURIComponent(item.file);
+  const mainIsVideo = isVideoFile(item.file);
+
+  const mainEl = mainIsVideo ? video : mainAudio;
+  if (mainIsVideo) {
+    mainAudio.pause();
+    video.classList.add("active");
+  } else {
+    video.pause();
+    video.classList.remove("active");
+  }
+
+  playEl(mainEl, mainUrl).then(() => trackElement(mainEl));
+
+  if (item.audio) {
+    const scoreUrl = "/media/" + encodeURIComponent(item.audio);
+    playEl(scoreAudio, scoreUrl).then(() => trackElement(scoreAudio));
+  }
+}
+
+function finishItem() {
+  clearWatchdogs();
+  video.classList.remove("active");
+  video.pause();
+  mainAudio.pause();
+  scoreAudio.pause();
+  video.removeAttribute("src");
+  mainAudio.removeAttribute("src");
+  scoreAudio.removeAttribute("src");
+  video.load();
+  mainAudio.load();
+  scoreAudio.load();
+  playing = false;
+  playNext();
+}
+
+function connect() {
+  const ws = new WebSocket(WS_URL);
+  ws.onmessage = (evt) => {
+    let msg;
+    try { msg = JSON.parse(evt.data); } catch { return; }
+    if (msg.type === "play_media" && msg.file) {
+      queue.push(msg);
+      playNext();
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 2000);
+  ws.onerror = () => ws.close();
+}
+connect();
+</script>
+</body>
+</html>
