@@ -109,7 +109,7 @@ def load_deaths() -> dict:
     return {}
 
 
-# ── permissions ──────────────────────────────────────────────────────────
+
 
 _PERM_RANK = {"everyone": 0, "vip": 1, "subscriber": 1, "mod": 2, "moderator": 2, "broadcaster": 3}
 
@@ -132,7 +132,7 @@ def _has_permission(cmd: dict, login: str, badges: list) -> bool:
     return _user_rank(login, badges) >= _PERM_RANK.get(required, 0)
 
 
-# ── scripting / placeholders ────────────────────────────────────────────
+
 
 def _check_cooldown(trigger: str, seconds: int) -> bool:
     if seconds <= 0:
@@ -175,7 +175,7 @@ def _render_response(trigger: str, response: str, user: str, arg: str) -> str:
     return response
 
 
-# ── lyrics ───────────────────────────────────────────────────────────────
+
 
 _LRC_LINE_RE = re.compile(r"^\[(\d+):(\d+(?:\.\d+)?)\](.*)")
 
@@ -228,7 +228,7 @@ def _parse_ttml_words(ttml_text: str) -> list[dict]:
         except (ValueError, IndexError):
             return None
 
-    # walk all <p> and <span> elements
+    
     for p in root.iter("p"):
         p_begin = _t(p.get("begin"))
         p_end   = _t(p.get("end"))
@@ -268,7 +268,7 @@ def _fetch_lrclib(artist: str, title: str, duration: float | None = None) -> dic
     tries /api/get first (exact match) then /api/search as fallback."""
     headers = {"User-Agent": "streamd/1.0 (github.com/streamd; contact via twitch)"}
 
-    # primary: exact lookup
+    
     params: dict = {"track_name": title, "artist_name": artist}
     if duration:
         params["duration"] = str(int(duration))
@@ -277,7 +277,7 @@ def _fetch_lrclib(artist: str, title: str, duration: float | None = None) -> dic
     if isinstance(result, dict):
         return result
 
-    # fallback: search
+    
     search_url = "https://lrclib.net/api/search?" + urllib.parse.urlencode(
         {"track_name": title, "artist_name": artist}
     )
@@ -349,11 +349,11 @@ def _fetch_lrcmux(artist: str, title: str) -> dict | None:
         results = _get_json(search_url, headers)
         if results is None:
             return None
-        # prefer word-synced results
+        
         candidates = results.get("results", []) if isinstance(results, dict) else results
         if not candidates:
             return None
-        # pick first with word sync, fall back to first with line sync, then any
+        
         best = None
         for c in candidates:
             if c.get("hasWordSync"):
@@ -384,10 +384,10 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
     {
         found: bool,
         title, artist,
-        plain_lines: [str],          # plain text, one line each
-        synced_lines: [{time, text}], # LRC-parsed, empty if unavailable
-        synced_words: [{time, end, word}], # TTML-parsed, empty if unavailable
-        reason: str                  # only present when found=False
+        plain_lines: [str],          
+        synced_lines: [{time, text}], 
+        synced_words: [{time, end, word}], 
+        reason: str                  
     }
     """
     payload: dict = {
@@ -399,7 +399,7 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
         "synced_words": [],
     }
 
-    # --- use providers from most useful sync data to broad plain-text coverage ---
+    
     lrcmux_data = _fetch_lrcmux(artist, title)
     if lrcmux_data:
         ttml_text = lrcmux_data.get("ttml") or ""
@@ -417,7 +417,7 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
                 payload["plain_lines"] = [l["text"] for l in lines if l["text"]]
                 payload["found"] = True
 
-    # --- fall back / supplement with lrclib ---
+    
     lrclib_data = _fetch_lrclib(artist, title, duration)
     if lrclib_data:
         synced_lrc = lrclib_data.get("syncedLyrics") or ""
@@ -433,7 +433,7 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
 
         if plain_txt and not payload["plain_lines"]:
             cleaned = [l.rstrip() for l in plain_txt.splitlines()]
-            # strip leading/trailing blank lines
+            
             while cleaned and not cleaned[0]:
                 cleaned.pop(0)
             while cleaned and not cleaned[-1]:

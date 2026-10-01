@@ -18,7 +18,7 @@ from broadcast import broadcast_sync, send_chat
 from twitch_auth import get_twitch_user_token
 from latest import set_latest
 
-_twitch_user_id = None  # kept local like the original (module-level, not per-instance in original either... but original used a module global)
+_twitch_user_id = None  
 
 
 def _helix_headers() -> dict:
@@ -99,7 +99,7 @@ def resolve_twitch_user_id() -> str | None:
     return None
 
 
-# ── channel info (title / category / tags) ─────────────────────────────────
+
 
 FIRST_TITLE_SUFFIX_RE = re.compile(r"\s*\|\s*first:\s*.+$", re.IGNORECASE)
 
@@ -345,7 +345,7 @@ async def _twitch_eventsub_subscribe(session_id: str, sub_type: str, version: st
 
 
 async def twitch_eventsub_loop() -> None:
-    # import here to avoid a circular import with redeems.py
+    
     from redeems import handle_redemption, grant_gift_credits, grant_sub_credits, grant_cheer_credits
 
     if not TWITCH_CLIENT_ID or not get_twitch_user_token():
@@ -456,7 +456,7 @@ async def twitch_eventsub_loop() -> None:
             await asyncio.sleep(10)
 
 
-# ── ad break reminder ────────────────────────────────────────────────────
+
 
 def get_ad_schedule(broadcaster_id: str) -> dict | None:
     try:

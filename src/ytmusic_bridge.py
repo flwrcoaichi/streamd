@@ -23,7 +23,7 @@ from broadcast import broadcast_sync
 from helpers import write_atomic, write_bytes_atomic
 
 
-# Fix 0.0.0.0 outgoing connection error on Windows
+
 def _get_target_host() -> str:
     host = YTM_COMPANION_HOST
     if host in ("0.0.0.0", "", "::"):
@@ -31,7 +31,7 @@ def _get_target_host() -> str:
     return host
 
 
-# ── REST API Helpers ───────────────────────────────────────────────────
+
 
 def _get_base_url() -> str:
     return f"http://{_get_target_host()}:{YTM_COMPANION_PORT}"
@@ -58,7 +58,7 @@ def _api_request(method: str, path: str, payload: dict | None = None) -> dict | 
         return None
 
 
-# ── Companion Token (Pairing) ──────────────────────────────────────────
+
 
 def load_companion_token() -> str | None:
     if YTM_COMPANION_TOKEN_PATH.exists():
@@ -98,7 +98,7 @@ def run_companion_pairing_flow() -> None:
         print(f"Authentication failed — check if pear-desktop is running and host/port are correct: {e}")
 
 
-# ── Native WebSocket Client (Live State Updates) ──────────────────────
+
 
 class _YtmCompanion:
     """Connects to the native WebSocket endpoint /api/v1/ws."""
@@ -135,7 +135,7 @@ class _YtmCompanion:
                     async for message in ws:
                         try:
                             data = json.loads(message)
-                            #log.info("[ytm] raw ws payload: %s", data)  # TEMP — remove after inspecting
+                            #log.info("[ytm] raw ws payload: %s", data)  
                             _handle_state_update(data)
                         except Exception as parse_err:
                             log.warning("[ytm] failed to parse ws payload: %s", parse_err)
@@ -174,7 +174,7 @@ def _handle_state_update(data: dict) -> None:
         _apply_song_state(data)
         return
 
-    # VOLUME_CHANGED, REPEAT_CHANGED, SHUFFLE_CHANGED, etc — ignore
+    
     return
 
 def _mv_find_real_video(title: str, artist: str) -> str | None:
@@ -204,7 +204,7 @@ def _mv_find_real_video(title: str, artist: str) -> str | None:
             for entry in (info or {}).get("entries", []) or []:
                 uploader = (entry.get("uploader") or entry.get("channel") or "")
                 if uploader.strip().endswith("- Topic"):
-                    continue  # auto-generated audio-only channel, skip
+                    continue  
                 vid = entry.get("id")
                 if vid:
                     log.info("[mv-cache] found real video for %r - %r via %r: %s (%s)",
@@ -234,7 +234,7 @@ def _apply_song_state(data: dict) -> None:
         data.get("position"),
         _as_float(song.get("elapsedSeconds")),
     )
-    # PLAYER_INFO has top-level isPlaying; VIDEO_CHANGED only has song.isPaused
+    
     if "isPlaying" in data:
         playing = bool(data.get("isPlaying"))
     else:
@@ -319,7 +319,7 @@ def media_control(action: str) -> None:
         log.warning("[ytm] unknown media action %r", action)
 
 
-# ── Music Video Caching (yt-dlp) ────────────────────────────────────────
+
 
 _mv_inflight: set[str] = set()
 _mv_inflight_lock = threading.Lock()
@@ -409,7 +409,7 @@ def _mv_download(video_id: str, title: str, artist: str) -> None:
     threading.Thread(target=_worker, daemon=True, name="mv-download").start()
 
 
-# ── Search (ytmusicapi) — Song Request Redeem ───────────────────────────
+
 
 _ytmusic_client = None
 _ytmusic_lock = threading.Lock()
@@ -454,7 +454,7 @@ def request_song(query: str, user: str) -> tuple[bool, str]:
     if not match or not match.get("videoId"):
         return False, f"couldn't find a song matching {query!r}"
 
-    # Queue video using POST /api/v1/queue
+    
     res = _api_request("POST", "/api/v1/queue", {"videoId": match["videoId"]})
     if res is None:
         return False, "Failed to queue song via companion API"

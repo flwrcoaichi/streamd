@@ -38,7 +38,7 @@ def rx(pattern, repl):
     return f
 
 
-# ───────────────────────── config / env ─────────────────────────
+
 ed('src/config.py', [
     ('TWITCH_AUTH_REDIRECT_URI = "http://localhost:1752/callback"\nTWITCH_AUTH_PORT = 1752',
      'TWITCH_AUTH_REDIRECT_URI = os.environ.get("TWITCH_AUTH_REDIRECT_URI", "http://localhost:1752/callback")\nTWITCH_AUTH_PORT = int(os.environ.get("TWITCH_AUTH_PORT", "1752"))'),
@@ -49,18 +49,18 @@ ed('src/config.py', [
 ed('.env.example', [
     lambda s: s.rstrip('\n') + r'''
 
-# TWITCH OAUTH REDIRECTS (must match the redirect URLs registered in the Twitch dev console)
+
 TWITCH_AUTH_REDIRECT_URI   = http://localhost:1752/callback
 TWITCH_AUTH_PORT           = 1752
 
-# PUBLIC CANVAS
+
 CANVAS_PUBLIC_PORT         = 1760
 CANVAS_PUBLIC_BASE_URL     = http://localhost:1760
 CANVAS_PUBLIC_REDIRECT_URI = http://localhost:1760/canvas/callback
 ''',
 ])
 
-# ───────────────────────── canvas public page ─────────────────────────
+
 new('overlay/canvas-public.html', r'''<!doctype html>
 <html lang="en">
 <head>
@@ -148,7 +148,7 @@ class LayoutsListHandler(tornado.web.RequestHandler):'''),
     ('(r"/canvas/place", CanvasPublicPlaceHandler),', '(r"/canvas/place", CanvasPublicPlaceHandler),\n        (r"/canvas/logout", CanvasPublicLogoutHandler),'),
 ])
 
-# ───────────────────────── server state ─────────────────────────
+
 ed('src/state.py', [
     ('"wm_layout": [],', '"wm_layout": [],\n            "wm_layouts": {},\n            "notepads": {},\n            "latest": {"follower": "", "sub": ""},'),
 ])
@@ -269,7 +269,7 @@ ed('src/main.py', [
      'state.data["flags"] = load_flags()\nstate.data["wm_layouts"] = load_wm_layouts()\nstate.data["wm_layout"] = state.data["wm_layouts"].get("main", [])\nstate.data["notepads"] = load_notepads()\nstate.data["latest"] = load_latest()'),
 ])
 
-# ───────────────────────── wm.js: border colors + pixel borders ─────────────────────────
+
 ed('overlay/wm.js', [
     ('  function applyGeometry(win, rec) {', r'''  function hexRgb(h) {
     h = (h || '').replace('#', '');
@@ -353,7 +353,7 @@ ed('overlay/wm.js', [
      "    rec.root.style.display = shouldHideWindowInOverlay ? 'none' : '';\n    applyBorder(win, rec);\n  }"),
 ])
 
-# ───────────────────────── panels.js ─────────────────────────
+
 def pixelate_init(s):
     a = s.index('const modeData = h.modeData;')
     b = s.index('    function frame() {')
@@ -478,7 +478,7 @@ ed('overlay/panels.js', [
     ('const img = ctx.createImageData(w, hg);', 'const img = ctx.createImageData(h.canvas.width, h.canvas.height);'),
 ])
 
-# ───────────────────────── overlay.html ─────────────────────────
+
 ed('overlay/overlay.html', [
     ("  let ws = null;\n  const overlayState",
      "  let ws = null;\n  const layoutName = (new URLSearchParams(location.search)).get('layout') || 'main';\n  const overlayState"),
@@ -494,7 +494,7 @@ ed('overlay/overlay.html', [
      "    if (t === 'canvas_pixel') { broadcastToAllPanels('canvas_pixel', msg); return; }\n    if (t === 'notepad') { broadcastToAllPanels('notepad', msg); return; }\n    if (t === 'latest') { broadcastToAllPanels('latest', msg.latest); return; }"),
 ])
 
-# ───────────────────────── control.html ─────────────────────────
+
 ed('overlay/control.html', [
     ('<div class="side-title">grid snap</div>', r'''<div class="side-title">overlay</div>
     <select id="overlay-select"></select>

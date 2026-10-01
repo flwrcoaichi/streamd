@@ -2,8 +2,8 @@
 """
 streamd: a daemon for managing a Twitch stream with overlays, a simple bot, a websocket api, and tts.
 usage:
-    python run.py             # run the daemon
-    python run.py --auth      # authorize with your twitch account to get a user and refresh token
+    python run.py             
+    python run.py --auth      
     python run.py --ytm-auth  # pair with pear-desktop's companion API for YouTube Music control
 """
 import sys

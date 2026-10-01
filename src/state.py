@@ -126,10 +126,10 @@ class StreamState:
         self.irc_socket = None
         self.media_session = None
 
-        # obs client (obs.py)
+        
         self.obs: "OBSClient | None" = None
 
-        # twitch auth (twitch_auth.py)
+        
         self.twitch_token_lock = threading.Lock()
         self.twitch_token_state: dict = {}
         self.twitch_user_id = None
@@ -138,24 +138,24 @@ class StreamState:
         self.channel_info_lock = threading.Lock()
         self.base_stream_title: str | None = None
 
-        # tts (tts.py)
+        
         self.tts_queue = None
         self.tts_sessions = None
         self.tts_tokenizer = None
         self.tts_lock = threading.Lock()
         self.tts_popup_open = threading.Lock()
 
-        # redeems (redeems.py)
+        
         self.first_chatter_today: str | None = None
         self.first_chatter_date: str = ""
 
-        # commands (commands.py)
+        
         self.cooldowns: dict = {}
         self.counters: dict = {}
 
-        # canvas (canvas.py)
+        
         self.canvas_lock = threading.Lock()
-        self.canvas_credits: dict = {}  # username.lower() -> pending pixel credits
+        self.canvas_credits: dict = {}  
         self.canvas_public_sessions: dict[str, dict] = {}
 
     def tts_state(self) -> dict:

@@ -6,11 +6,6 @@ from state import state
 from broadcast import broadcast_sync
 from helpers import get_cpu, get_mem, get_gpu, get_uptime, get_wpm
 
-# NOTE: WinRT/SMTC-based media tracking (run_music_thread) and its
-# media_control() have been removed — playback state and transport
-# control now live in ytmusic_bridge.py, backed by pear-desktop's
-# companion API instead of the OS media session. See ytmusic_bridge.py.
-
 
 def run_stats_thread() -> None:
     while True:

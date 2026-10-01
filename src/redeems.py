@@ -150,7 +150,7 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     (case-insensitive) against the configured rewards table. `badges` is
     only populated when this is triggered from a test/chat context — real
     twitch redemption events don't carry badge info."""
-    # local imports to avoid circular imports at module load time
+    
     from tts import tts_say
     from twitch_api import resolve_twitch_user_id, snooze_next_ad, apply_first_chatter_title_suffix
     from flags import add_flags, roll_flag_gamble, roll_flag_jackpot
@@ -178,9 +178,9 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     action = cfg.get("action", "message")
     template = cfg.get("message", "")
 
-    # song_request has its own message resolution (the search result IS the
+    
     # message) so it's handled and logged separately from the shared
-    # template-substitution path below.
+    
     if action == "song_request":
         query = (user_input or "").strip()
         if not query:

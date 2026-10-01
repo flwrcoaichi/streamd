@@ -572,7 +572,7 @@ async def ws_handler(ws) -> None:
                     await ws.send(json.dumps({"type": "canvas_place_result", "ok": ok, "message": result_message}))
 
                 elif cmd == "canvas_grant":
-                    # manual credit grant from control.html, for testing / manual awards
+                    
                     from canvas import add_credits
                     user = msg.get("user", "").strip()
                     amount = int(msg.get("amount", 0) or 0)

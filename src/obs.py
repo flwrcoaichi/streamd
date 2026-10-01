@@ -111,10 +111,10 @@ async def obs_set_scene_item_visibility(scene_name: str, source_name: str, enabl
     if scene_name:
         candidates.append(scene_name)
 
-    # OBS may render a Browser Source in a different scene than the currently
-    # active program scene. Search the known scene list too, then fall back to
-    # the current scene as a last resort. This makes the toggle work even when
-    # the source is not on the active scene tab.
+    
+    
+    
+    
     for known in state.data.get("obs", {}).get("scenes", []):
         if known not in candidates:
             candidates.append(known)

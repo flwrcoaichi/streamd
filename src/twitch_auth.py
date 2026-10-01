@@ -2,8 +2,9 @@ import http.server
 import json
 import socketserver
 import time
-import urllib.error
+from urllib.error import HTTPError
 import urllib.parse
+from urllib.parse import urlencode
 
 from config import (
     log, TWITCH_TOKEN_PATH, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET,
@@ -36,12 +37,12 @@ def save_twitch_token(data: dict) -> None:
 def twitch_token_exchange(payload: dict) -> dict:
     import urllib.request
 
-    body = urllib.parse.urlencode(payload).encode()
+    body = urlencode(payload).encode()
     req = urllib.request.Request("https://id.twitch.tv/oauth2/token", data=body, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
+    except HTTPError as e:
         detail = e.read().decode("utf-8", "replace")
         raise RuntimeError(f"twitch token endpoint returned {e.code}: {detail}") from e
 
