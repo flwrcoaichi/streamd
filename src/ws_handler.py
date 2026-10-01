@@ -282,6 +282,37 @@ def run_key_panel_listener() -> None:
         log.warning("[key_panel] %s", e)
 
 
+WM_STATE_PATH = BASE_DIR / "wm_state.json"
+NOTEPADS_PATH = BASE_DIR / "notepads.json"
+
+
+def _overlay_name(name: object) -> str:
+    return re.sub(r"[^\w\-]", "_", str(name or "main").strip())[:40] or "main"
+
+
+def load_wm_layouts() -> dict:
+    try:
+        data = json.loads(WM_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    layouts = data.get("wm_layouts")
+    if not isinstance(layouts, dict):
+        layouts = {"main": data.get("wm_layout") or []}
+    return layouts
+
+
+def save_wm_layouts() -> None:
+    write_atomic(WM_STATE_PATH, json.dumps({"wm_layouts": state.data["wm_layouts"]}, indent=2))
+
+
+def load_notepads() -> dict:
+    try:
+        data = json.loads(NOTEPADS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 async def ws_handler(ws) -> None:
     with state.clients_lock:
         state.clients.add(ws)
@@ -432,12 +463,23 @@ async def ws_handler(ws) -> None:
                 elif cmd == "wm_layout_set":
                     layout = msg.get("layout", [])
                     if isinstance(layout, list):
-                        state.data["wm_layout"] = layout
-                        try:
-                            write_atomic(BASE_DIR / "wm_state.json", json.dumps({"wm_layout": layout}, indent=2))
-                        except Exception as exc:
-                            log.warning("wm_layout_set persist failed: %s", exc)
-                        await broadcast({"type": "wm_layout", "layout": layout})
+                        name = _overlay_name(msg.get("name"))
+                        state.data["wm_layouts"][name] = layout
+                        if name == "main":
+                            state.data["wm_layout"] = layout
+                        save_wm_layouts()
+                        await broadcast({"type": "wm_layout", "name": name, "layout": layout})
+                elif cmd == "wm_layout_delete":
+                    name = _overlay_name(msg.get("name"))
+                    if name != "main" and state.data["wm_layouts"].pop(name, None) is not None:
+                        save_wm_layouts()
+                        await broadcast({"type": "wm_layout_deleted", "name": name})
+                elif cmd == "notepad_set":
+                    pid = str(msg.get("id", ""))[:60]
+                    if pid:
+                        state.data["notepads"][pid] = str(val)[:20000]
+                        write_atomic(NOTEPADS_PATH, json.dumps(state.data["notepads"]))
+                        await broadcast({"type": "notepad", "id": pid, "value": state.data["notepads"][pid]})
                 elif cmd == "command_set":
                     trigger = msg.get("trigger", "").lower()
                     cmd_data = msg.get("data", {})

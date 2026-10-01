@@ -5,11 +5,11 @@ function createWM(opts) {
   const renderBody = opts.renderBody || (() => {});
   const onSelect = opts.onSelect || (() => {});
 
-  const GRID = opts.gridSize || 1; // px snap; 1 = off
+  const GRID = opts.gridSize || 1;
   const MIN_W = 80, MIN_H = 60;
 
-  let windows = new Map(); // id -> window state
-  let els = new Map();     // id -> {root, body, header}
+  let windows = new Map();
+  let els = new Map();    
   let zCounter = 10;
   let selectedId = null;
   let suppressEmit = false;
@@ -45,15 +45,15 @@ function createWM(opts) {
     return Array.from(windows.values()).map(w => ({ ...w }));
   }
 
-  // setLayout now DIFFS against the current window set instead of
-  // destroying and recreating everything. this matters because a full
-  // rebuild wipes each panel's in-memory handle (chat scrollback, the
-  // current message text, tts transcript, etc) — previously *any* layout
-  // broadcast (e.g. from a drag on control.html) would blank out
-  // overlay.html's chat/message panels until the next full page reload.
-  // now: unchanged windows keep their existing DOM + handle untouched,
-  // changed windows get their geometry/opts patched in place, only
-  // added/removed windows get mount/unmount calls.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
   function setLayout(layoutArr, opts2) {
     opts2 = opts2 || {};
     suppressEmit = !!opts2.silent;
@@ -61,7 +61,7 @@ function createWM(opts) {
     const nextList = (layoutArr || []).map(normalizeWindow);
     const nextIds = new Set(nextList.map(w => w.id));
 
-    // remove windows that no longer exist
+   
     for (const id of Array.from(windows.keys())) {
       if (!nextIds.has(id)) {
         destroyWindowEl(id);
@@ -69,7 +69,7 @@ function createWM(opts) {
       }
     }
 
-    // add or update
+   
     for (const win of nextList) {
       const existing = windows.get(win.id);
       if (!existing) {
@@ -77,9 +77,9 @@ function createWM(opts) {
         zCounter = Math.max(zCounter, (win.z || 0) + 1);
         renderWindow(win);
       } else {
-        // same window (matched by id) — patch geometry/meta in place,
-        // do NOT touch its mounted body/handle unless the panel type
-        // itself changed (rare — treat as remove+add in that case).
+       
+       
+       
         if (existing.panel !== win.panel) {
           destroyWindowEl(win.id);
           windows.set(win.id, win);
@@ -167,11 +167,88 @@ function createWM(opts) {
       const win = windows.get(id);
       const renderer = win ? opts.getRenderer && opts.getRenderer(win.panel) : null;
       if (renderer && renderer.unmount && rec.handle) {
-        try { renderer.unmount(rec.handle); } catch (e) { /* ignore */ }
+        try { renderer.unmount(rec.handle); } catch (e) {  }
       }
       if (rec.root.parentNode) rec.root.parentNode.removeChild(rec.root);
     }
     els.delete(id);
+  }
+
+  function hexRgb(h) {
+    h = (h || '').replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const n = parseInt(h, 16);
+    return isNaN(n) || h.length !== 6 ? [255, 255, 255] : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  let bRaf = null, bLast = 0;
+  function startBorderLoop() {
+    if (bRaf) return;
+    const tick = (ts) => {
+      bRaf = requestAnimationFrame(tick);
+      if (ts - bLast < 70) return;
+      bLast = ts;
+      let any = false;
+      els.forEach((rec, id) => {
+        if (!rec.bcanvas) return;
+        any = true;
+        drawBorder(windows.get(id), rec, ts);
+      });
+      if (!any) { cancelAnimationFrame(bRaf); bRaf = null; }
+    };
+    bRaf = requestAnimationFrame(tick);
+  }
+
+  function drawBorder(win, rec, ts) {
+    if (!win) return;
+    const o = win.opts || {};
+    const cell = Math.max(2, Number(o.border_cell) || 4);
+    const cols = Math.max(3, Math.ceil(win.w / cell)), rows = Math.max(3, Math.ceil(win.h / cell));
+    const cv = rec.bcanvas;
+    if (cv.width !== cols || cv.height !== rows) { cv.width = cols; cv.height = rows; }
+    cv.style.width = win.w + 'px';
+    cv.style.height = win.h + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.clearRect(0, 0, cols, rows);
+    const a = hexRgb(o.border_color || '#ffffff'), b = hexRgb(o.border_color2 || '#7ef7c6');
+    const n = 2 * (cols + rows) - 4, steps = 6, shift = (ts / 1000) * (Number(o.border_speed) || 0.15);
+    let i = 0;
+    const put = (x, y) => {
+      let t = ((i / n) + shift) % 1;
+      t = t < 0.5 ? t * 2 : (1 - t) * 2;
+      t = Math.round(t * steps) / steps;
+      ctx.fillStyle = `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',')})`;
+      ctx.fillRect(x, y, 1, 1);
+      i++;
+    };
+    for (let x = 0; x < cols; x++) put(x, 0);
+    for (let y = 1; y < rows; y++) put(cols - 1, y);
+    for (let x = cols - 2; x >= 0; x--) put(x, rows - 1);
+    for (let y = rows - 2; y >= 1; y--) put(0, y);
+  }
+
+  function applyBorder(win, rec) {
+    const o = win.opts || {};
+    const col = o.border_color || '';
+    const pixel = o.border_mode === 'pixel' && col;
+    rec.root.style.borderColor = pixel ? 'transparent' : col;
+    rec.header.style.background = col;
+    if (col) {
+      const [r, g, b] = hexRgb(col);
+      rec.header.style.color = (r * 299 + g * 587 + b * 114) / 1000 > 140 ? '#0a0d0a' : '#ffffff';
+    } else rec.header.style.color = '';
+    if (pixel) {
+      if (!rec.bcanvas) {
+        const cv = document.createElement('canvas');
+        cv.style.cssText = 'position:absolute;left:-1px;top:-1px;pointer-events:none;image-rendering:pixelated;z-index:5';
+        rec.root.appendChild(cv);
+        rec.bcanvas = cv;
+      }
+      startBorderLoop();
+    } else if (rec.bcanvas) {
+      rec.bcanvas.remove();
+      rec.bcanvas = null;
+    }
   }
 
   function applyGeometry(win, rec) {
@@ -182,6 +259,7 @@ function createWM(opts) {
     if (win.kind !== 'topmost') rec.root.style.zIndex = String(win.z);
     const shouldHideWindowInOverlay = !win.visible && !editable;
     rec.root.style.display = shouldHideWindowInOverlay ? 'none' : '';
+    applyBorder(win, rec);
   }
 
   function renderWindow(win) {

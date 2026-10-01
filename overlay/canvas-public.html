@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>canvas</title>
+<style>
+:root{color-scheme:dark;--ink:#e8edf1;--bg:#0a0c0d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'Courier New',ui-monospace,monospace;overflow:hidden}
+body{display:grid;place-items:center}
+#bar{position:fixed;top:12px;right:12px;display:flex;gap:10px;align-items:center;z-index:5}
+#auth{font:inherit;color:var(--ink);background:none;border:1px solid var(--ink);padding:6px 12px;cursor:pointer;text-transform:lowercase;transition:background .15s,color .15s}
+#auth:hover{background:var(--ink);color:var(--bg)}
+#color{width:34px;height:34px;padding:0;border:1px solid var(--ink);background:none;cursor:pointer}
+#wrap{position:relative;width:min(86vmin,900px);aspect-ratio:1;border:1px solid var(--ink);animation:in .5s ease both}
+@keyframes in{from{opacity:0;transform:scale(.96)}}
+#c{display:block;width:100%;height:100%;image-rendering:pixelated;cursor:none;background:#11161d;touch-action:none}
+#ghost{position:absolute;left:0;top:0;pointer-events:none;opacity:0;outline:1px solid #fff;transition:transform .07s ease-out,opacity .15s;z-index:2}
+#ghost.on{opacity:.75}
+#carry{position:fixed;left:0;top:0;width:14px;height:14px;border:1px solid #fff;pointer-events:none;opacity:0;z-index:9;box-shadow:0 4px 10px rgba(0,0,0,.6);transition:opacity .15s,transform .06s ease-out}
+#carry.on{opacity:1}
+.pop{position:absolute;pointer-events:none;border:2px solid currentColor;animation:pop .45s ease-out forwards}
+@keyframes pop{to{transform:scale(5);opacity:0}}
+</style>
+</head>
+<body>
+<div id="bar"><input id="color" type="color" value="#ff7a18" aria-label="color"><button id="auth" type="button">sign in with twitch</button></div>
+<div id="wrap"><canvas id="c"></canvas><div id="ghost"></div></div>
+<div id="carry"></div>
+<script>
+const $=id=>document.getElementById(id),c=$('c'),x=c.getContext('2d'),wrap=$('wrap'),ghost=$('ghost'),carry=$('carry'),color=$('color'),auth=$('auth');
+let size=100,pixels={},user=null;
+const api=async(u,o)=>{const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'failed');return d};
+function draw(){c.width=c.height=size;x.fillStyle='#11161d';x.fillRect(0,0,size,size);for(const k in pixels){const[a,b]=k.split(',');x.fillStyle=pixels[k];x.fillRect(+a,+b,1,1)}}
+async function board(){try{const d=await api('/canvas/state');size=d.size||100;pixels=d.pixels||{};draw();ghost.style.width=ghost.style.height=100/size+'%'}catch(e){}}
+async function session(){try{user=(await api('/canvas/session')).username||null}catch(e){user=null}auth.textContent=user||'sign in with twitch';auth.title=user?'click to sign out':''}
+auth.onclick=async()=>{if(!user){location.href='/canvas/login';return}await api('/canvas/logout',{method:'POST'}).catch(()=>{});user=null;await session()};
+function paint(){ghost.style.background=color.value;carry.style.background=color.value}
+color.oninput=paint;
+function at(e){const r=c.getBoundingClientRect();const px=Math.floor((e.clientX-r.left)/r.width*size),py=Math.floor((e.clientY-r.top)/r.height*size);return px>=0&&py>=0&&px<size&&py<size?[px,py]:null}
+function move(e){carry.style.transform=`translate(${e.clientX+12}px,${e.clientY+12}px)`;const p=at(e);ghost.classList.toggle('on',!!p);carry.classList.toggle('on',!!p);if(p)ghost.style.transform=`translate(${p[0]*100}%,${p[1]*100}%)`}
+c.addEventListener('pointermove',move);
+c.addEventListener('pointerdown',move);
+c.addEventListener('pointerleave',()=>{ghost.classList.remove('on');carry.classList.remove('on')});
+function ring(px,py,col){const d=document.createElement('div');d.className='pop';d.style.cssText=`width:${100/size}%;height:${100/size}%;left:${px*100/size}%;top:${py*100/size}%;color:${col}`;wrap.appendChild(d);setTimeout(()=>d.remove(),500)}
+c.addEventListener('click',async e=>{
+  const p=at(e);if(!p)return;
+  if(!user){auth.animate([{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'none'}],{duration:200,iterations:2});return}
+  const[px,py]=p,col=color.value;
+  pixels[px+','+py]=col;x.fillStyle=col;x.fillRect(px,py,1,1);ring(px,py,col);
+  carry.animate([{scale:'1.8'},{scale:'1'}],{duration:180});
+  try{await api('/canvas/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({x:px,y:py,color:col})})}catch(err){board()}
+});
+paint();session().then(board);setInterval(board,4000);
+</script>
+</body>
+</html>

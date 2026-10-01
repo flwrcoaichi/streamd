@@ -18,7 +18,8 @@ from tts import run_tts_worker, run_hotkeys
 from chat_irc import run_stats_thread, run_chat_thread, run_wpm_tracker
 from ytmusic_bridge import run_ytmusic_thread, run_companion_pairing_flow
 from http_server import start_http_server
-from ws_handler import ws_handler, run_key_panel_listener
+from ws_handler import ws_handler, run_key_panel_listener, load_wm_layouts, load_notepads
+from latest import load_latest
 
 state.data["commands"] = load_commands()
 state.data["rewards"] = load_rewards()
@@ -26,6 +27,10 @@ state.data["checkins"] = load_checkins()
 state.data["deaths"] = load_deaths()
 state.data["deaths"] = load_deaths()
 state.data["flags"] = load_flags()
+state.data["wm_layouts"] = load_wm_layouts()
+state.data["wm_layout"] = state.data["wm_layouts"].get("main", [])
+state.data["notepads"] = load_notepads()
+state.data["latest"] = load_latest()
 
 
 def run_twitch_token_refresh_thread() -> None:

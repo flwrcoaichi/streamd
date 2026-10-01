@@ -18,7 +18,7 @@ from config import (
     MEDIA_DIR, MEDIA_EXTS, MV_CACHE_DIR, HTTP_PORT, LAYOUTS_DIR,
     TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET,
     CANVAS_PUBLIC_PORT, CANVAS_PUBLIC_BASE_URL, CANVAS_PUBLIC_COOKIE,
-    CANVAS_PUBLIC_REDIRECT_PATH, CANVAS_PUBLIC_TWITCH_SCOPE,
+    CANVAS_PUBLIC_REDIRECT_URI, CANVAS_PUBLIC_TWITCH_SCOPE,
 )
 from canvas import place_public_pixel
 from state import state
@@ -42,28 +42,11 @@ _REDEEM_PLAYER_HTML = """<!doctype html>
   <audio id="scoreAudio"></audio>
 </div>
 <script>
-// tangia-like redeem player — connects to the same control websocket as the
-// rest of the overlays and plays whatever file a "play_media" broadcast
-// points at. add this as a Browser Source in OBS (transparent bg), sized
-// to your scene. files live in the /media/ directory next to the script
-// (STREAM_MEDIA_DIR / redeems/media by default).
-//
-// a redeem can specify:
-//   file  — a video (mp4/webm/mov) or audio (mp3/wav/ogg) file, required
-//   audio — an optional second audio file to play AT THE SAME TIME as
-//           `file` (e.g. score a silent/muted clip with a specific song,
-//           or layer music under a video that already has its own sound)
 const WS_URL = "ws://localhost:8877";
 const video      = document.getElementById("player");
-const mainAudio  = document.getElementById("mainAudio");   // plays `file` when it's audio-only
-const scoreAudio = document.getElementById("scoreAudio");  // plays the optional `audio` companion track
+const mainAudio  = document.getElementById("mainAudio");  
+const scoreAudio = document.getElementById("scoreAudio"); 
 
-// OBS's embedded Chromium enforces the same autoplay-with-sound rules as a
-// regular browser: unmuted play() can get silently rejected until the page
-// has "user activation". we try unmuted first (so a video's own audio
-// track and any companion track actually play), and only fall back to
-// muted playback if the browser blocks it — better a silent clip than a
-// stuck queue.
 let queue = [];
 let playing = false;
 let watchdogs = [];
@@ -78,18 +61,15 @@ function clearWatchdogs() {
 }
 
 function armWatchdog(el, onDone) {
-  // belt-and-suspenders: if 'ended'/'error' never fire for some reason
-  // (codec quirk, OBS source getting hidden/shown, etc), this guarantees
-  // the queue un-sticks itself instead of dying after one play forever.
+ 
+ 
+ 
   const guessMs = (isFinite(el.duration) && el.duration > 0)
     ? (el.duration * 1000) + 3000
     : 60000;
   watchdogs.push(setTimeout(onDone, guessMs));
 }
 
-// plays `el` with `url`, trying unmuted first and falling back to muted
-// autoplay if the browser rejects it. resolves once playback has actually
-// started (or been given up on).
 function playEl(el, url) {
   return new Promise((resolve) => {
     el.muted = false;
@@ -106,10 +86,6 @@ function playEl(el, url) {
   });
 }
 
-// tracks how many of the (up to 2) concurrently-playing elements for the
-// current queue item are still going, so we only advance the queue once
-// everything for this item has actually finished — e.g. a companion song
-// longer than its video won't get cut off early.
 let activeCount = 0;
 
 function trackElement(el) {
@@ -386,203 +362,14 @@ class CommandsHandler(tornado.web.RequestHandler):
 
 
 class CanvasPublicPageHandler(tornado.web.RequestHandler):
-    """public Twitch-authenticated canvas page on the dedicated public port."""
-
     def get(self) -> None:
+        path = _resolve_overlay_file("canvas-public.html")
+        if path is None:
+            self.set_status(404)
+            self.write("canvas-public.html not found in overlay dirs")
+            return
         self.set_header("Content-Type", "text/html; charset=utf-8")
-        self.write("""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Canvas Sign-in</title>
-  <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0; min-height: 100vh; display: grid; place-items: center;
-      background: radial-gradient(circle at top, #1b2430, #090b0d 55%);
-      font-family: Inter, system-ui, sans-serif; color: #edf3ff;
-    }
-    .panel {
-      width: min(980px, calc(100vw - 24px));
-      background: rgba(11, 15, 18, 0.96); border: 1px solid rgba(140, 169, 255, 0.55);
-      border-radius: 18px; box-shadow: 0 20px 50px rgba(0,0,0,.35);
-      padding: 20px;
-    }
-    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .meta { font-size: 0.85rem; color: #9bb0c8; }
-    .status {
-      display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px;
-      border-radius: 999px; background: rgba(142, 164, 255, 0.12); border: 1px solid rgba(142,164,255,.25);
-      font-weight: 700;
-    }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #7ef2b4; }
-    .dot.offline { background: #f7bf74; }
-    .center { display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
-    .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    button {
-      border: 0; border-radius: 10px; padding: 10px 14px; font-weight: 700; cursor: pointer;
-      background: #7ba5ff; color: #091320; box-shadow: 0 6px 18px rgba(95, 140, 255, 0.35);
-    }
-    button.secondary { background: #2b3540; color: #edf3ff; box-shadow: none; }
-    input[type='color'] { width: 44px; height: 38px; padding: 0; border: 0; border-radius: 8px; background: transparent; }
-    #board-wrap { overflow: auto; margin-top: 16px; border-radius: 12px; border: 1px solid rgba(146,173,255,.2); background: #0e1217; }
-    canvas { display: block; background: #11161d; image-rendering: pixelated; }
-    .note { color: #a7b9d1; margin-top: 12px; }
-  </style>
-</head>
-<body>
-  <div class="panel">
-    <div class="topbar">
-      <div>
-        <div class="meta">Public canvas</div>
-        <h1 style="margin:6px 0 0; font-size:1.5rem;">Place a pixel on the stream canvas</h1>
-      </div>
-      <div id="authStatus" class="status"><span class="dot offline"></span><span>Checking login…</span></div>
-    </div>
-    <div class="center">
-      <div class="controls">
-        <label for="colorPicker" style="font-weight:700;">Color</label>
-        <input id="colorPicker" type="color" value="#ff7a18" aria-label="pixel color">
-        <button id="loginBtn" type="button">Sign in with Twitch</button>
-        <button id="refreshBtn" type="button" class="secondary">Refresh board</button>
-      </div>
-      <div id="whoami" class="meta">Not signed in</div>
-    </div>
-    <div id="board-wrap">
-      <canvas id="canvas" width="800" height="800"></canvas>
-    </div>
-    <div class="note">One pixel per click. The board records your Twitch username so it can be matched to the shared canvas history.</div>
-  </div>
-
-  <script>
-    const state = { size: 100, pixels: {}, owners: {} };
-    const cellSize = 8;
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const colorPicker = document.getElementById('colorPicker');
-    const loginBtn = document.getElementById('loginBtn');
-    const refreshBtn = document.getElementById('refreshBtn');
-    const authStatus = document.getElementById('authStatus');
-    const whoami = document.getElementById('whoami');
-    let username = null;
-
-    function setStatus(online, text) {
-      authStatus.innerHTML = `<span class="dot ${online ? '' : 'offline'}"></span><span>${text}</span>`;
-    }
-
-    async function jsonFetch(url, options = {}) {
-      const response = await fetch(url, options);
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.error || data.message || 'request failed');
-      return data;
-    }
-
-    function drawBoard() {
-      const size = state.size || 100;
-      canvas.width = size * cellSize;
-      canvas.height = size * cellSize;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-          const key = `${x},${y}`;
-          ctx.fillStyle = state.pixels[key] || '#11161d';
-          ctx.fillRect(x * cellSize, y * cellSize, cellSize, cellSize);
-        }
-      }
-      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-      ctx.lineWidth = 1;
-      for (let i = 0; i <= size; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * cellSize, 0);
-        ctx.lineTo(i * cellSize, size * cellSize);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i * cellSize);
-        ctx.lineTo(size * cellSize, i * cellSize);
-        ctx.stroke();
-      }
-    }
-
-    async function loadSession() {
-      try {
-        const data = await jsonFetch('/canvas/session');
-        username = data.username || null;
-        if (username) {
-          whoami.textContent = `Signed in as ${username}`;
-          setStatus(true, 'Authenticated');
-          loginBtn.textContent = 'Sign out';
-        } else {
-          whoami.textContent = 'Not signed in';
-          setStatus(false, 'Not authenticated');
-          loginBtn.textContent = 'Sign in with Twitch';
-        }
-      } catch (err) {
-        whoami.textContent = 'Not signed in';
-        setStatus(false, 'Not authenticated');
-        username = null;
-      }
-    }
-
-    async function loadBoard() {
-      const data = await jsonFetch('/canvas/state');
-      state.size = data.size || 100;
-      state.pixels = data.pixels || {};
-      state.owners = data.owners || {};
-      drawBoard();
-    }
-
-    async function placePixel(x, y) {
-      if (!username) {
-        alert('Please sign in with Twitch before placing a pixel.');
-        return;
-      }
-      const color = colorPicker.value;
-      const response = await fetch('/canvas/place', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ x, y, color })
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'place failed');
-      }
-      await loadBoard();
-      if (data.message) {
-        setStatus(true, data.message);
-      }
-    }
-
-    canvas.addEventListener('click', async (event) => {
-      const rect = canvas.getBoundingClientRect();
-      const x = Math.floor((event.clientX - rect.left) / (rect.width / state.size));
-      const y = Math.floor((event.clientY - rect.top) / (rect.height / state.size));
-      if (x < 0 || y < 0 || x >= state.size || y >= state.size) return;
-      try {
-        await placePixel(x, y);
-      } catch (err) {
-        alert(err.message || 'Failed to place pixel.');
-      }
-    });
-
-    loginBtn.addEventListener('click', () => {
-      if (username) {
-        document.cookie = 'streamd_canvas_session=; Max-Age=0; path=/; SameSite=Lax';
-        window.location.reload();
-        return;
-      }
-      window.location.href = '/canvas/login';
-    });
-
-    refreshBtn.addEventListener('click', async () => {
-      await loadSession();
-      await loadBoard();
-    });
-
-    loadSession().then(loadBoard).catch(() => loadBoard());
-  </script>
-</body>
-</html>""")
+        self.write(path.read_text(encoding="utf-8"))
 
 
 class CanvasPublicLoginHandler(tornado.web.RequestHandler):
@@ -593,7 +380,7 @@ class CanvasPublicLoginHandler(tornado.web.RequestHandler):
             self.set_status(503)
             self.write(json.dumps({"error": "TWITCH_CLIENT_ID is not configured for public canvas auth"}))
             return
-        redirect_uri = f"{CANVAS_PUBLIC_BASE_URL}{CANVAS_PUBLIC_REDIRECT_PATH}"
+        redirect_uri = CANVAS_PUBLIC_REDIRECT_URI
         auth_url = (
             "https://id.twitch.tv/oauth2/authorize"
             f"?client_id={urllib.parse.quote(TWITCH_CLIENT_ID)}"
@@ -619,7 +406,7 @@ class CanvasPublicCallbackHandler(tornado.web.RequestHandler):
             self.write("<h1>Config error</h1><p>TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be set.</p>")
             return
         try:
-            redirect_uri = f"{CANVAS_PUBLIC_BASE_URL}{CANVAS_PUBLIC_REDIRECT_PATH}"
+            redirect_uri = CANVAS_PUBLIC_REDIRECT_URI
             payload = urllib.parse.urlencode({
                 "client_id": TWITCH_CLIENT_ID,
                 "client_secret": TWITCH_CLIENT_SECRET,
@@ -722,6 +509,14 @@ class CanvasPublicPlaceHandler(tornado.web.RequestHandler):
             return
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"ok": True, "message": msg, "user": session["username"]}))
+
+
+class CanvasPublicLogoutHandler(tornado.web.RequestHandler):
+    def post(self) -> None:
+        state.canvas_public_sessions.pop(self.get_cookie(CANVAS_PUBLIC_COOKIE), None)
+        self.clear_cookie(CANVAS_PUBLIC_COOKIE)
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"ok": True}))
 
 
 class LayoutsListHandler(tornado.web.RequestHandler):
@@ -947,7 +742,8 @@ def start_http_server() -> None:
         (r"/canvas/session", CanvasPublicSessionHandler),
         (r"/canvas/state", CanvasPublicStateHandler),
         (r"/canvas/place", CanvasPublicPlaceHandler),
-        (r"/canvas", CanvasPublicPageHandler),
+        (r"/canvas/logout", CanvasPublicLogoutHandler),
+        (r"/canvas/?", CanvasPublicPageHandler),
         (r"/", CanvasPublicPageHandler),
     ])
     public_app.listen(CANVAS_PUBLIC_PORT)

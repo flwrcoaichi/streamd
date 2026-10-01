@@ -268,6 +268,11 @@
     </div>
   </div>
   <div id="layout-sidebar">
+    <div class="side-title">overlay</div>
+    <select id="overlay-select"></select>
+    <div class="field-row"><button id="btn-overlay-new" type="button">new</button><button id="btn-overlay-del" type="button" style="color:var(--red)">delete</button></div>
+    <div class="hint" id="overlay-url" style="word-break:break-all;"></div>
+
     <div class="side-title">grid snap</div>
     <select id="grid-snap-select">
       <option value="1">off</option>
@@ -276,6 +281,15 @@
       <option value="40" selected>40px</option>
       <option value="80">80px</option>
     </select>
+
+    <div class="side-title">bulk colors</div>
+    <div class="field-row"><input type="color" id="bulk-border" value="#ffffff"><input type="color" id="bulk-border2" value="#7ef7c6"></div>
+    <select id="bulk-border-mode" style="margin-top:6px;"><option value="solid">solid borders</option><option value="pixel">pixel gradient borders</option><option value="default">default (remove)</option></select>
+    <button id="bulk-border-apply" type="button">apply to all borders</button>
+    <div class="field-row"><input type="color" id="bulk-spacer" value="#4ade80"></div>
+    <button id="bulk-spacer-apply" type="button">apply to all spacers</button>
+    <div class="field-row"><input type="color" id="bulk-text" value="#d8dee2"></div>
+    <button id="bulk-text-apply" type="button">apply to all text</button>
 
     <div class="side-title">add window</div>
     <select id="add-panel-type">
@@ -296,6 +310,8 @@
       <option value="tts_transcript">tts transcript</option>
       <option value="ad_warning">ad warning (popup)</option>
       <option value="canvas">canvas (popup)</option>
+      <option value="notepad">notepad</option>
+      <option value="latest">latest follower / sub</option>
     </select>
     <button class="primary" id="btn-add-window">add window</button>
 
@@ -472,6 +488,24 @@ Space|#8be9fd|pill|20|12</textarea>
       <div class="field" id="ed-canvas-size-row" style="display:none;">
         <label>canvas size (px grid)</label>
         <input type="number" id="ed-canvas-size" min="8" max="256">
+      </div>
+      <div class="field">
+        <label>border</label>
+        <select id="ed-border-mode"><option value="default">default</option><option value="solid">solid</option><option value="pixel">pixel gradient</option></select>
+        <div class="field-row"><input type="color" id="ed-border-color" value="#ffffff"><input type="color" id="ed-border-color2" value="#7ef7c6"></div>
+      </div>
+      <div class="field" id="ed-spacer-pixel-row" style="display:none;">
+        <label>spacer pixel size</label>
+        <input type="number" id="ed-spacer-pixel" min="1" max="12" value="2">
+      </div>
+      <div class="field" id="ed-notepad-row" style="display:none;">
+        <label>notepad text (live)</label>
+        <textarea id="ed-notepad-text" rows="8" style="width:100%;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;border:1px solid var(--line-lit);resize:vertical;"></textarea>
+        <div class="row" style="margin-top:4px;"><label style="margin:0;"><input type="checkbox" id="ed-notepad-md" checked style="width:auto;"> markdown (apply to toggle)</label></div>
+      </div>
+      <div class="field" id="ed-latest-row" style="display:none;">
+        <label>show</label>
+        <select id="ed-latest-show"><option value="both">follower + sub</option><option value="follower">follower only</option><option value="sub">sub only</option></select>
       </div>
       <button id="btn-apply-edit">apply</button>
       <button id="btn-remove-selected" style="color:var(--red); border-color:var(--red-dim);">remove window</button>
@@ -914,6 +948,7 @@ const DEFAULT_LAYOUT = [
 ];
 
 let selectedWinId = null;
+let currentOverlay = 'main';
 const editorHandles = new Map();
 
 // id generation: previously a session-local counter starting at 1 meant
@@ -927,6 +962,7 @@ const editorHandles = new Map();
 function nextIdFor(panelType) {
   let n = 1;
   const existing = new Set(wm.getLayout().map(w => w.id));
+  Object.values(state.wm_layouts || {}).forEach(l => (l || []).forEach(w => existing.add(w.id)));
   while (existing.has(panelType + '_' + n)) n++;
   return panelType + '_' + n;
 }
@@ -938,7 +974,9 @@ const wm = createWM({
   getRenderer: (panelName) => Panels[panelName],
   onSelect: (id) => { selectedWinId = id; refreshWinEditor(); refreshWinList(); },
   onLayoutChange: (layout) => {
-    send({ cmd: 'wm_layout_set', layout });
+    state.wm_layouts = state.wm_layouts || {};
+    state.wm_layouts[currentOverlay] = layout;
+    send({ cmd: 'wm_layout_set', name: currentOverlay, layout });
     refreshWinList();
   },
   renderBody: (win, bodyEl) => {
@@ -1062,6 +1100,19 @@ function refreshWinEditor() {
   $('ed-wos-url-row').style.display = win.panel === 'words' ? '' : 'none';
   $('ed-key-panel-row').style.display = win.panel === 'key_panel' ? '' : 'none';
   $('ed-canvas-size-row').style.display = win.panel === 'canvas' ? '' : 'none';
+  const wo = win.opts || {};
+  $('ed-border-mode').value = wo.border_mode || 'default';
+  $('ed-border-color').value = wo.border_color || '#ffffff';
+  $('ed-border-color2').value = wo.border_color2 || '#7ef7c6';
+  $('ed-spacer-pixel-row').style.display = isSpacer ? '' : 'none';
+  $('ed-spacer-pixel').value = wo.spacer_pixel || 2;
+  $('ed-notepad-row').style.display = win.panel === 'notepad' ? '' : 'none';
+  if (win.panel === 'notepad') {
+    $('ed-notepad-md').checked = wo.notepad_markdown !== false;
+    $('ed-notepad-text').value = (state.notepads || {})[win.id] || '';
+  }
+  $('ed-latest-row').style.display = win.panel === 'latest' ? '' : 'none';
+  if (win.panel === 'latest') $('ed-latest-show').value = wo.latest_show || 'both';
 }
 
 $('btn-apply-edit').onclick = () => {
@@ -1116,6 +1167,12 @@ $('btn-apply-edit').onclick = () => {
     send({ cmd: 'key_panel_set', key_panel: { ...opts } });
   }
   if (win.panel === 'canvas') opts.size = parseInt($('ed-canvas-size').value, 10) || 100;
+  const bm = $('ed-border-mode').value;
+  if (bm === 'default') { delete opts.border_mode; delete opts.border_color; delete opts.border_color2; }
+  else { opts.border_mode = bm; opts.border_color = $('ed-border-color').value; opts.border_color2 = $('ed-border-color2').value; }
+  if (win.panel === 'spacer') opts.spacer_pixel = parseInt($('ed-spacer-pixel').value, 10) || 2;
+  if (win.panel === 'notepad') opts.notepad_markdown = $('ed-notepad-md').checked;
+  if (win.panel === 'latest') opts.latest_show = $('ed-latest-show').value;
   patch.opts = opts;
   wm.updateWindow(selectedWinId, patch);
   refreshWinList();
@@ -1132,7 +1189,7 @@ const PANEL_TITLES = {
   now_playing: 'now playing', lyrics: 'lyrics', status: 'pc status', socials: 'socials',
   message_bar: 'message bar', screen: 'screen', chat: 'chat', extra: 'extra',
   key_panel: 'key panel', spacer: 'log', pngtuber: 'pngtuber', alerts: 'alert', redeem_player: 'redeem',
-  words: 'words', tts_transcript: 'tts', ad_warning: 'ad break', canvas: 'canvas',
+  words: 'words', tts_transcript: 'tts', ad_warning: 'ad break', canvas: 'canvas', notepad: 'notes', latest: 'latest',
 };
 
 $('btn-add-window').onclick = () => {
@@ -1160,7 +1217,7 @@ $('btn-add-window').onclick = () => {
 
 $('btn-reset-layout').onclick = () => {
   wm.setLayout(DEFAULT_LAYOUT);
-  send({ cmd: 'wm_layout_set', layout: wm.getLayout() });
+  send({ cmd: 'wm_layout_set', name: currentOverlay, layout: wm.getLayout() });
   selectedWinId = null;
   refreshWinEditor();
   refreshWinList();
@@ -1199,7 +1256,7 @@ $('btn-layout-load').onclick = () => {
   fetch('/layout-load?name=' + encodeURIComponent(name)).then(r => r.json()).then(data => {
     if (data.ok && Array.isArray(data.layout)) {
       wm.setLayout(data.layout);
-      send({ cmd: 'wm_layout_set', layout: wm.getLayout() });
+      send({ cmd: 'wm_layout_set', name: currentOverlay, layout: wm.getLayout() });
       selectedWinId = null;
       refreshWinEditor();
       refreshWinList();
@@ -1254,18 +1311,35 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'init':
       state = msg.state;
+      state.wm_layouts = state.wm_layouts || {};
+      if (!state.wm_layouts.main) state.wm_layouts.main = state.wm_layout || [];
+      if (!state.wm_layouts[currentOverlay]) currentOverlay = 'main';
+      loadOverlay(currentOverlay);
+      renderOverlaySelect();
       renderAll();
-      if (Array.isArray(state.wm_layout) && state.wm_layout.length) {
-        wm.setLayout(state.wm_layout, { silent: true });
-      } else {
-        wm.setLayout(DEFAULT_LAYOUT, { silent: true });
-      }
-      refreshWinList();
       fitStage();
       break;
-    case 'wm_layout':
-      wm.setLayout(msg.layout, { silent: true });
-      refreshWinList();
+    case 'wm_layout': {
+      const nm = msg.name || 'main';
+      state.wm_layouts = state.wm_layouts || {};
+      state.wm_layouts[nm] = msg.layout;
+      if (nm === currentOverlay) { wm.setLayout(msg.layout, { silent: true }); refreshWinList(); }
+      renderOverlaySelect();
+      break;
+    }
+    case 'wm_layout_deleted':
+      delete (state.wm_layouts || {})[msg.name];
+      if (currentOverlay === msg.name) loadOverlay('main');
+      renderOverlaySelect();
+      break;
+    case 'notepad':
+      state.notepads = state.notepads || {};
+      state.notepads[msg.id] = msg.value;
+      broadcastToAllPanels('notepad', msg);
+      break;
+    case 'latest':
+      state.latest = msg.latest;
+      broadcastToAllPanels('latest', msg.latest);
       break;
     case 'status': state.status = msg.value; renderStatus(); break;
     case 'scene': state.scene = msg.value; break;
@@ -1298,6 +1372,7 @@ function handleMessage(msg) {
 }
 
 function broadcastToAllPanels(key, msg) {
+  Panels.cacheMsg(key, msg);
   wm.forEachWindow(win => {
     const renderer = Panels[win.panel];
     const h = editorHandles.get(win.id);
@@ -1313,6 +1388,8 @@ function renderAll() {
   renderAds(); renderWords(); renderCanvas();
   if (state.key_panel) broadcastToAllPanels('key_panel', state.key_panel);
   if (state.message !== undefined) broadcastToAllPanels('message', { value: state.message });
+  Object.entries(state.notepads || {}).forEach(([id, value]) => broadcastToAllPanels('notepad', { id, value }));
+  if (state.latest) broadcastToAllPanels('latest', state.latest);
 }
 
 function pctClass(pct) { if (pct >= 85) return 'crit'; if (pct >= 65) return 'warn'; return ''; }
@@ -1543,6 +1620,70 @@ $('ed-spacer-kind').addEventListener('change', () => {
   $('ed-spacer-color').value = SPACER_COLOR_DEFAULTS[$('ed-spacer-kind').value] || '#00ff66';
   refreshSpacerRowsFromDropdown();
 });
+function loadOverlay(name) {
+  currentOverlay = name;
+  const l = (state.wm_layouts || {})[name];
+  selectedWinId = null;
+  refreshWinEditor();
+  wm.setLayout(l && l.length ? l : DEFAULT_LAYOUT, { silent: true });
+  refreshWinList();
+  $('overlay-url').textContent = `obs url: http://${location.host}/overlay?layout=${name}`;
+}
+function renderOverlaySelect() {
+  const names = Object.keys(state.wm_layouts || {});
+  if (!names.includes('main')) names.unshift('main');
+  $('overlay-select').innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('');
+  $('overlay-select').value = currentOverlay;
+}
+$('overlay-select').onchange = () => loadOverlay($('overlay-select').value);
+$('btn-overlay-new').onclick = () => {
+  const n = (prompt('overlay name (e.g. brb):') || '').trim().replace(/[^\w\-]/g, '_').slice(0, 40);
+  if (!n || (state.wm_layouts || {})[n]) return;
+  state.wm_layouts[n] = wm.getLayout();
+  send({ cmd: 'wm_layout_set', name: n, layout: state.wm_layouts[n] });
+  loadOverlay(n);
+  renderOverlaySelect();
+};
+$('btn-overlay-del').onclick = () => {
+  if (currentOverlay === 'main') { toast("can't delete main"); return; }
+  if (!confirm('delete overlay "' + currentOverlay + '"?')) return;
+  const n = currentOverlay;
+  delete state.wm_layouts[n];
+  send({ cmd: 'wm_layout_delete', name: n });
+  loadOverlay('main');
+  renderOverlaySelect();
+};
+
+function bulkOpts(fn) {
+  wm.getLayout().forEach(w => {
+    const o = { ...(w.opts || {}) };
+    if (fn(w, o) !== false) wm.updateWindow(w.id, { opts: o }, { silent: true });
+  });
+  const layout = wm.getLayout();
+  state.wm_layouts[currentOverlay] = layout;
+  send({ cmd: 'wm_layout_set', name: currentOverlay, layout });
+  refreshWinEditor();
+  toast('applied');
+}
+$('bulk-border-apply').onclick = () => bulkOpts((w, o) => {
+  const m = $('bulk-border-mode').value;
+  if (m === 'default') { delete o.border_mode; delete o.border_color; delete o.border_color2; return; }
+  o.border_mode = m; o.border_color = $('bulk-border').value; o.border_color2 = $('bulk-border2').value;
+});
+$('bulk-spacer-apply').onclick = () => bulkOpts((w, o) => { if (w.panel !== 'spacer') return false; o.spacer_color = $('bulk-spacer').value; });
+$('bulk-text-apply').onclick = () => bulkOpts((w, o) => { o.text_color = $('bulk-text').value; });
+
+let npTimer = null;
+$('ed-notepad-text').addEventListener('input', () => {
+  if (!selectedWinId) return;
+  const id = selectedWinId, value = $('ed-notepad-text').value;
+  state.notepads = state.notepads || {};
+  state.notepads[id] = value;
+  broadcastToAllPanels('notepad', { id, value });
+  clearTimeout(npTimer);
+  npTimer = setTimeout(() => send({ cmd: 'notepad_set', id, value }), 150);
+});
+
 renderPresets();
 refreshLayoutConfigList();
 connect();

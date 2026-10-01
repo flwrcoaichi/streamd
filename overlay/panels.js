@@ -1,17 +1,4 @@
-/*
- * panels.js — per-window-type content renderers for the streamd overlay.
- * Shared by overlay.html (render-only) and control.html (editable mirror).
- *
- * Each panel exposes:
- *   mount(bodyEl, win)   — called once when the window is created; build DOM, return a handle
- *   onState(handle, key, payload, overlayState, wm, winId) — called on relevant websocket messages
- *   applyOpts(handle, win) — OPTIONAL. called when win.opts changes (e.g. font size/color edited
- *                            in control.html) WITHOUT remounting the panel. Panels that support
- *                            live style edits (chat, extra, tts_transcript, socials, message_bar,
- *                            ad_warning) implement this so font-size changes actually take effect
- *                            without losing panel state.
- *   unmount(handle)      — called when the window is removed (cleanup timers/RAF)
- */
+
 
 const Panels = (() => {
 
@@ -64,7 +51,7 @@ const Panels = (() => {
     return (keyName || '').toUpperCase();
   }
 
-  // ── 7TV emotes (shared across chat panel instances) ─────────────────────
+ 
   const sevenTv = new Map();
   let sevenTvLoaded = false;
   async function ensure7tv(channelLogin) {
@@ -81,7 +68,7 @@ const Panels = (() => {
           if (file) sevenTv.set(e.name, `https:${host.url}/${file.name}`);
         }
       }
-    } catch (e) { /* non-fatal */ }
+    } catch (e) {  }
     if (!channelLogin) return;
     try {
       const idRes = await fetch(`https://decapi.me/twitch/id/${encodeURIComponent(channelLogin)}`);
@@ -98,7 +85,7 @@ const Panels = (() => {
         const file = (host.files || []).find(f => f.format === 'WEBP' && f.name === '1x.webp') || (host.files || [])[0];
         if (file) sevenTv.set(e.name, `https:${host.url}/${file.name}`);
       }
-    } catch (e) { /* non-fatal */ }
+    } catch (e) {  }
   }
 
   function renderChatText(text, emotes) {
@@ -128,7 +115,7 @@ const Panels = (() => {
     return out;
   }
 
-  // ── now_playing ───────────────────────────────────────────────────────
+ 
   const now_playing = {
     mount(body, win) {
       body.innerHTML = `
@@ -174,7 +161,7 @@ const Panels = (() => {
     },
   };
 
-  // ── lyrics ───────────────────────────────────────────────────────────
+ 
   const lyrics = {
     mount(body, win) {
       body.classList.add('wm-term');
@@ -253,7 +240,7 @@ const Panels = (() => {
     tick();
   }
 
-  // ── status (pc stats) ────────────────────────────────────────────────
+ 
   const status = {
     mount(body, win) {
       body.classList.add('wm-term');
@@ -277,24 +264,24 @@ const Panels = (() => {
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
   };
 
-  // ── socials ──────────────────────────────────────────────────────────
+ 
   const socials = {
     mount(body, win) {
       body.classList.add('wm-term');
       applyTextOpts(body, win && win.opts);
       const lines = ((win && win.opts && win.opts.social_lines) || 'twitter: @vanillyn_net\ndiscord: @vanillyn').split(/\r?\n/).filter(Boolean);
-      body.innerHTML = lines.map(l => `<span class="line">${escapeHtml(l)}</span>`).join('') + '<span class="wm-cursor">&nbsp;</span>';
+      body.innerHTML = lines.map(l => `<span class="line">${rich(l)}</span>`).join('') + '<span class="wm-cursor">&nbsp;</span>';
       return { body };
     },
     onState() {},
     applyOpts(h, win) {
       applyTextOpts(h.body, win.opts);
       const lines = ((win.opts && win.opts.social_lines) || '').split(/\r?\n/).filter(Boolean);
-      h.body.innerHTML = lines.map(l => `<span class="line">${escapeHtml(l)}</span>`).join('') + '<span class="wm-cursor">&nbsp;</span>';
+      h.body.innerHTML = lines.map(l => `<span class="line">${rich(l)}</span>`).join('') + '<span class="wm-cursor">&nbsp;</span>';
     },
   };
 
-  // ── message bar ─────────────────────────────────────────────────────
+ 
   const message_bar = {
     mount(body, win) {
       body.classList.add('wm-term');
@@ -317,18 +304,18 @@ const Panels = (() => {
     },
     onState(h, key, msg) {
       if (key !== 'message') return;
-      h.line.textContent = msg && msg.value ? String(msg.value) : '';
+      h.line.innerHTML = msg && msg.value ? rich(msg.value) : '';
     },
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
   };
 
-  // ── screen (deliberately blank — OBS source layered manually) ──────────
+ 
   const screen = {
     mount(body) { body.style.background = 'transparent'; return {}; },
     onState() {},
   };
 
-  // ── key panel ────────────────────────────────────────────────────────
+ 
   const key_panel = {
     mount(body, win) {
       body.classList.add('key-panel-body');
@@ -413,7 +400,7 @@ const Panels = (() => {
     }
   }
 
-  // ── chat ─────────────────────────────────────────────────────────────
+ 
   const CHAT_MAX = 40;
   const chat = {
     mount(body, win, ctx) {
@@ -435,7 +422,7 @@ const Panels = (() => {
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
   };
 
-  // ── extra ────────────────────────────────────────────────────────────
+ 
   const extra = {
     mount(body, win) {
       body.classList.add('wm-term');
@@ -449,17 +436,17 @@ const Panels = (() => {
       if (key !== 'extra') return;
       h.content.innerHTML = msg.value ||
         'flwr/ashOS pre-4<br>© 1998-2026 flowerCO, © ???? ????????<br>For Monitoring S0-ACZ4<br>' +
-        '<span style="color: teal ;">Failed to monitor CAM1 on Channel4</span><br>Monitoring DWM1 on Channel4';
+        '<span style="color: yellow ;">Failed to monitor CAM1 on Channel4</span><br>Monitoring DWM1 on Channel4';
     },
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
   };
 
-  // ── words on stream (wos.gg) ─────────────────────────────────────────
-  // only shown/hidden via !words / !endwords (broadcaster-only chat
-  // commands) or the control panel. per vanillyn: audio must fully
-  // unload on !endwords, not just hide — so we swap the iframe's src
-  // to blank instead of toggling visibility, forcing the browser to
-  // tear down any media the page was playing.
+ 
+ 
+ 
+ 
+ 
+ 
   const words = {
     mount(body, win) {
       body.style.background = 'transparent';
@@ -488,10 +475,10 @@ const Panels = (() => {
     },
   };
 
-  // ── tts transcript ───────────────────────────────────────────────────
-  // shows what's queued/generating/being spoken via tts, so chat (and
-  // vanillyn) aren't confused when audio starts with no visible context.
-  // reuses the existing tts_state generating/speaking/current fields.
+ 
+ 
+ 
+ 
   const tts_transcript = {
     mount(body, win) {
       body.classList.add('wm-term');
@@ -515,9 +502,9 @@ const Panels = (() => {
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
   };
 
-  // ── ad warning ───────────────────────────────────────────────────────
-  // only visible when an ad is imminent or currently running. reuses the
-  // existing ads_state (in_ad_break / seconds_until).
+ 
+ 
+ 
   const ad_warning = {
     mount(body, win) {
       body.classList.add('wm-term', 'alerts-body');
@@ -544,10 +531,10 @@ const Panels = (() => {
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
   };
 
-  // ── canvas (collaborative pixel art) ─────────────────────────────────
-  // hidden by default (popup kind), shown periodically by the daemon or
-  // on !canvas / control panel. renders from a sparse "x,y" -> "#hex" map
-  // and patches individual cells as canvas_pixel events arrive.
+ 
+ 
+ 
+ 
   const canvas = {
     mount(body, win) {
       body.style.background = (win.opts && win.opts.bg_color) || '#0a0c0d';
@@ -595,7 +582,6 @@ const Panels = (() => {
     },
   };
 
-// ── spacer: canned ascii/ansi animations ────────────────────────────
   const BOOTLOG_LINES = [
 'Starting systemd-udevd version 255.4-1-arch',
 '/dev/nvme0n1p2: clean, 214580/19660800 files, 4120932/78643200 blocks',
@@ -663,16 +649,16 @@ const Panels = (() => {
 'archlinux login:',
   ];
 
-  // scroller message pool, keyed by a derived stream state. rather than
-  // requiring a separate manually-toggled field, this reads streamd's
-  // actual live broadcasts: `status` (free text set via the control panel
-  // / !panel-style commands, e.g. "starting soon", "brb", "playing: X") and
-  // `scene` ("live" vs anything else). onState('status', ...) and
-  // onState('scene', ...) below keep h.liveStatus / h.liveScene current,
-  // the same way the now_playing/status panels already track state off
-  // these same broadcasts. opts.spacer_state, if explicitly set on the
-  // window, overrides the derived value — useful for forcing a state for
-  // testing without waiting for the real status to change.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
   const SCROLLER_DEFAULT_MESSAGES = {
     starting: [
       '  hello!  ',
@@ -720,13 +706,13 @@ const Panels = (() => {
   };
 
 
-  // stylized text renderers for the scroller. each takes (ctx, text, x, y,
-  // fontPx, color, t) and is responsible for drawing one frame's worth of
-  // scrolling text at the given baseline position. keeping these as
-  // pluggable functions (rather than branching inline in the scroller case)
-  // makes it simple to add more styles later.
+ 
+ 
+ 
+ 
+ 
   const SCROLLER_STYLES = {
-    // plain sine wave, per-character vertical offset (the original look)
+   
     sine(ctx, text, x, y, fontPx, color, t, charW) {
       ctx.font = `${fontPx}px monospace`;
       ctx.fillStyle = color;
@@ -737,14 +723,14 @@ const Panels = (() => {
         ctx.fillText(text[i], cx, cy);
       }
     },
-    // flat, no wave — clean marquee-style scroll
+   
     flat(ctx, text, x, y, fontPx, color, t, charW) {
       ctx.font = `${fontPx}px monospace`;
       ctx.fillStyle = color;
       ctx.textBaseline = 'middle';
       ctx.fillText(text, x, y);
     },
-    // bounce: each character bobs independently, out of phase
+   
     bounce(ctx, text, x, y, fontPx, color, t, charW) {
       ctx.font = `${fontPx}px monospace`;
       ctx.fillStyle = color;
@@ -755,8 +741,8 @@ const Panels = (() => {
         ctx.fillText(text[i], cx, cy);
       }
     },
-    // rainbow: sine wave + per-character hue cycling (color arg becomes a
-    // base saturation/lightness rather than a fixed hex)
+   
+   
     rainbow(ctx, text, x, y, fontPx, color, t, charW) {
       ctx.font = `${fontPx}px monospace`;
       ctx.textBaseline = 'middle';
@@ -768,8 +754,8 @@ const Panels = (() => {
         ctx.fillText(text[i], cx, cy);
       }
     },
-    // glitch: mostly static position, occasional per-character jitter +
-    // color flicker, CRT-ish
+   
+   
     glitch(ctx, text, x, y, fontPx, color, t, charW) {
       ctx.font = `${fontPx}px monospace`;
       ctx.textBaseline = 'middle';
@@ -781,11 +767,11 @@ const Panels = (() => {
         ctx.fillText(text[i], cx + jx, y + jitter);
       }
     },
-    // banner: each character drawn as a chunky ascii-art block letter using
-    // a tiny built-in 5-row bitmap font, rather than the browser's font
-    // rendering — gives a proper "ascii art marquee" look instead of just
-    // colored text. falls back to a filled block for characters with no
-    // glyph defined (keeps unknown punctuation visible rather than blank).
+   
+   
+   
+   
+   
     banner(ctx, text, x, y, fontPx, color, t, charW) {
       const cell = Math.max(3, Math.floor(fontPx / 6));
       const glyphW = 5, glyphH = 5;
@@ -806,8 +792,8 @@ const Panels = (() => {
         }
       }
     },
-    // crt: flat scroll with a faint scanline pattern and a subtle red/cyan
-    // channel offset ghost, mimicking an old CRT/terminal display
+   
+   
     crt(ctx, text, x, y, fontPx, color, t, charW) {
       ctx.font = `${fontPx}px monospace`;
       ctx.textBaseline = 'middle';
@@ -819,7 +805,7 @@ const Panels = (() => {
       ctx.globalAlpha = 1;
       ctx.fillStyle = color;
       ctx.fillText(text, x, y);
-      // scanlines across just the text's vertical band
+     
       ctx.strokeStyle = 'rgba(0,0,0,0.35)';
       ctx.lineWidth = 1;
       const bandTop = y - fontPx * 0.7, bandBottom = y + fontPx * 0.7;
@@ -830,10 +816,10 @@ const Panels = (() => {
         ctx.stroke();
       }
     },
-    // ascii-shade: renders each character position as a density-ramped
-    // ascii block (░▒▓█ style) whose density follows the sine wave height —
-    // reads as a wave made of literal ascii shading characters rather than
-    // moving text glyphs, distinct from the plain 'sine' style
+   
+   
+   
+   
     ascii_shade(ctx, text, x, y, fontPx, color, t, charW) {
       const ramp = ' .:-=+*#%@';
       ctx.font = `${fontPx}px monospace`;
@@ -850,9 +836,9 @@ const Panels = (() => {
     },
   };
 
-  // minimal 5x5-bit ascii-art font for the 'banner' scroller style. only
-  // covers uppercase A-Z, 0-9, space, and a fallback glyph — enough for
-  // short marquee messages. each string is one row, '1' = filled cell.
+ 
+ 
+ 
   const ASCII_BANNER_FONT = {
     ' ': ['00000','00000','00000','00000','00000'],
     'A': ['01110','10001','11111','10001','10001'],
@@ -910,21 +896,21 @@ const Panels = (() => {
     return pool[Math.floor(Math.random() * pool.length)];
   }
 
-  // maps streamd's live `status` text + `scene` into one of our state
-  // buckets. status is free text the streamer types (via the control
-  // panel's status field, or the built-in presets: "starting soon", "be
-  // right back"/"brb", "just chatting", "playing: <game>", "ending soon",
-  // "offline"), so this does simple substring matching rather than
-  // expecting an enum — mirrors how the pngtuber panel already infers mood
-  // off the same status string (see panels.js resolvePngtuberState).
+ 
+ 
+ 
+ 
+ 
+ 
+ 
   function _deriveScrollerState(h) {
     const scene = (h.liveScene || '').toLowerCase().trim();
     const status = (h.liveStatus || '').toLowerCase().trim();
 
-    // streamd sends a normalized `scene` alongside the free-form `status`.
-    // Prefer the scene when it is known, because it reflects the actual
-    // mode transition the daemon just published; fall back to status text
-    // only for older or manually-set values that never send a scene.
+   
+   
+   
+   
     if (scene === 'starting' || scene === 'brb' || scene === 'ending' || scene === 'playing') {
       return scene;
     }
@@ -960,10 +946,10 @@ const Panels = (() => {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // ── color helpers ────────────────────────────────────────────────────
-  // spacer_color (from win.opts) is the single source of truth for an
-  // animation's accent color. each kind has a sane default so old saved
-  // layouts (no spacer_color set) still render with their original look.
+ 
+ 
+ 
+ 
   const SPACER_COLOR_DEFAULTS = {
     bootlog: '#d8dee2',
     matrix: '#00ff66',
@@ -991,9 +977,9 @@ const Panels = (() => {
     wireframe: '#5ef2ff',
   };
 
-  // vertex/edge sets for the wireframe kind. plain unit cube (±1 on each
-  // axis) plus a couple of alternates the user can pick via
-  // opts.spacer_wireframe_shape.
+ 
+ 
+ 
   const WIREFRAME_SHAPES = {
     cube: {
       verts: [
@@ -1037,6 +1023,11 @@ const Panels = (() => {
     return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
   }
 
+  function _pix(h) {
+    const p = Number(h.win && h.win.opts && h.win.opts.spacer_pixel);
+    return p >= 1 ? Math.min(12, Math.floor(p)) : 2;
+  }
+
   function _spacerColor(h) {
     return (h.win && h.win.opts && h.win.opts.spacer_color) || SPACER_COLOR_DEFAULTS[h.kind] || '#00ff66';
   }
@@ -1046,8 +1037,8 @@ const Panels = (() => {
     return `rgba(${r},${g},${b},${a})`;
   }
 
-  // shift hue-ish by mixing toward a secondary tone derived from the base
-  // color (used by plasma/fire for a gradient feel without hardcoding hues)
+ 
+ 
   function _shade(hex, factor) {
     const { r, g, b } = _hexToRgb(hex);
     const f = Math.max(0, Math.min(2, factor));
@@ -1065,13 +1056,13 @@ const Panels = (() => {
       body.appendChild(canvasEl);
       body.appendChild(pre);
 
-      // each spacer instance gets its own independent timer/raf/animation
-      // state object (h) — previously a shared module-level `t`/`modeData`
-      // pattern meant a second spacer window's animation loop could stomp
-      // on the first one's canvas sizing/state. keeping everything on `h`
-      // (already the pattern here) plus giving each instance its own
-      // canvas element (also already true — each mount() call makes a new
-      // <canvas>) means multiple spacer windows now animate independently.
+     
+     
+     
+     
+     
+     
+     
       const h = { kind, win, canvas: canvasEl, pre, raf: null, timer: null, lineIdx: 0, cleanups: [], body, modeData: {}, t: 0, liveStatus: '', liveScene: '' };
       startSpacer(h);
       return h;
@@ -1093,14 +1084,15 @@ const Panels = (() => {
     },
     applyOpts(h, win) {
       h.win = win;
+      if (h.resize) h.resize();
       const kind = (win.opts && win.opts.spacer_kind) || 'bootlog';
       if (kind !== h.kind) {
         h.kind = kind;
         spacer.unmount(h);
         startSpacer(h);
       }
-      // color-only changes don't need a full restart — modeData persists
-      // (matrix trails, starfield positions, etc keep animating smoothly)
+     
+     
     },
     unmount(h) {
       if (h.raf) cancelAnimationFrame(h.raf);
@@ -1140,24 +1132,25 @@ const Panels = (() => {
 
     h.pre.style.display = 'none';
     h.canvas.style.display = 'block';
+    h.canvas.style.imageRendering = 'pixelated';
     const ctx = h.canvas.getContext('2d');
 
     function resize() {
-      const rect = h.canvas.parentElement ? h.canvas.parentElement.getBoundingClientRect() : { width: 300, height: 200 };
-      h.canvas.width = rect.width || 300;
-      h.canvas.height = rect.height || 200;
+      const P = _pix(h);
+      h.canvas.width = Math.max(1, Math.floor((h.body.clientWidth || 300) / P));
+      h.canvas.height = Math.max(1, Math.floor((h.body.clientHeight || 200) / P));
     }
+    h.resize = resize;
     resize();
-
-    const onResize = () => resize();
-    window.addEventListener('resize', onResize);
-    h.cleanups.push(() => window.removeEventListener('resize', onResize));
+    const ro = new ResizeObserver(() => resize());
+    ro.observe(h.body);
+    h.cleanups.push(() => ro.disconnect());
 
     const modeData = h.modeData;
 
     if (h.kind === 'matrix') {
       const chars = '01アイウエオカキクケコサシスセソ$#@%&*';
-      let cols = new Array(Math.floor(h.canvas.width / 14)).fill(0);
+      let cols = new Array(Math.floor((h.canvas.width * _pix(h)) / 14)).fill(0);
       modeData.matrix = { chars, cols };
     } else if (h.kind === 'starfield') {
       const stars = Array.from({ length: 150 }, () => ({
@@ -1165,11 +1158,11 @@ const Panels = (() => {
       }));
       modeData.stars = stars;
     } else if (h.kind === 'fire') {
-      modeData.fireCols = Math.floor(h.canvas.width / 4);
-      modeData.fireRows = Math.floor(h.canvas.height / 4);
+      modeData.fireCols = Math.floor((h.canvas.width * _pix(h)) / 4);
+      modeData.fireRows = Math.floor((h.canvas.height * _pix(h)) / 4);
       modeData.fireBuf = new Array(modeData.fireCols * modeData.fireRows).fill(0);
     } else if (h.kind === 'rain') {
-      const cols = Math.max(1, Math.floor(h.canvas.width / 6));
+      const cols = Math.max(1, Math.floor((h.canvas.width * _pix(h)) / 6));
       modeData.rain = Array.from({ length: cols }, () => ({
         y: Math.random() * -500,
         speed: 4 + Math.random() * 8,
@@ -1181,8 +1174,8 @@ const Panels = (() => {
       modeData.pipes = { walkers: [], cell: 10, grid: null, cols: 0, rows: 0 };
     } else if (h.kind === 'life') {
       const cell = 6;
-      const cols = Math.max(4, Math.floor(h.canvas.width / cell));
-      const rows = Math.max(4, Math.floor(h.canvas.height / cell));
+      const cols = Math.max(4, Math.floor((h.canvas.width * _pix(h)) / cell));
+      const rows = Math.max(4, Math.floor((h.canvas.height * _pix(h)) / cell));
       const cells = new Uint8Array(cols * rows);
       for (let i = 0; i < cells.length; i++) cells[i] = Math.random() > 0.72 ? 1 : 0;
       modeData.life = { cell, cols, rows, cells, genTick: 0 };
@@ -1227,8 +1220,11 @@ const Panels = (() => {
 
     function frame() {
       h.t += 1;
-      const w = h.canvas.width;
-      const hg = h.canvas.height;
+      const P = _pix(h);
+      ctx.setTransform(1 / P, 0, 0, 1 / P, 0, 0);
+      ctx.imageSmoothingEnabled = false;
+      const w = h.canvas.width * P;
+      const hg = h.canvas.height * P;
       const color = _spacerColor(h);
 
       switch (h.kind) {
@@ -1251,7 +1247,7 @@ const Panels = (() => {
         }
         case 'static': {
           const { r, g, b } = _hexToRgb(color);
-          const img = ctx.createImageData(w, hg);
+          const img = ctx.createImageData(h.canvas.width, h.canvas.height);
           for (let i = 0; i < img.data.length; i += 4) {
             const v = Math.random();
             img.data[i] = r * v;
@@ -1328,7 +1324,7 @@ const Panels = (() => {
           break;
         }
         case 'plasma': {
-          // downsampled plasma field for perf, upscaled via fillRect blocks
+         
           const block = 6;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           const { r: br, g: bg, b: bb } = _hexToRgb(color);
@@ -1337,7 +1333,7 @@ const Panels = (() => {
             for (let xx = 0; xx < cols; xx++) {
               const v = Math.sin(xx * 0.15 + time) + Math.sin(yy * 0.15 + time * 1.3) +
                         Math.sin((xx + yy) * 0.1 + time * 0.7) + Math.sin(Math.sqrt(xx * xx + yy * yy) * 0.12 - time);
-              const t2 = (v + 4) / 8; // normalize 0..1
+              const t2 = (v + 4) / 8;
               ctx.fillStyle = `rgb(${Math.round(br * t2)},${Math.round(bg * (1 - t2) + bg * t2 * 0.3)},${Math.round(bb * (1 - t2 * 0.5))})`;
               ctx.fillRect(xx * block, yy * block, block, block);
             }
@@ -1447,7 +1443,7 @@ const Panels = (() => {
                 next[y * L.cols + x] = alive ? (n === 2 || n === 3 ? 1 : 0) : (n === 3 ? 1 : 0);
               }
             }
-            // reseed if the board has died out or stabilized to near-empty
+           
             let count = 0; for (let i = 0; i < next.length; i++) count += next[i];
             if (count < L.cells.length * 0.02) {
               for (let i = 0; i < next.length; i++) next[i] = Math.random() > 0.75 ? 1 : 0;
@@ -1479,8 +1475,8 @@ const Panels = (() => {
           break;
         }
         case 'metaballs': {
-          // downsampled scalar-field metaballs — classic demoscene "blob"
-          // effect, computed on a coarse grid then drawn as blocks for perf
+         
+         
           const block = 5;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           const balls = modeData.metaballs.balls;
@@ -1512,7 +1508,7 @@ const Panels = (() => {
           break;
         }
         case 'tunnel': {
-          // texture-mapped tunnel via angle/depth lookup per downsampled pixel
+         
           const block = 4;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           const cx = w / 2, cy = hg / 2;
@@ -1533,11 +1529,11 @@ const Panels = (() => {
           break;
         }
         case 'rotozoom': {
-          // checkerboard rotated+zoomed each frame — classic rotozoomer.
-          // fixed: solid two-tone squares (no alpha blending, which read as
-          // muddy) and a checker size that scales with canvas size so it
-          // stays readable at small window dimensions instead of aliasing
-          // into noise.
+         
+         
+         
+         
+         
           const block = 4;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           modeData.rotozoom.angle += 0.012;
@@ -1561,7 +1557,7 @@ const Panels = (() => {
           break;
         }
         case 'copperbars': {
-          // classic amiga-style bouncing gradient copper bars
+         
           ctx.fillStyle = '#000';
           ctx.fillRect(0, 0, w, hg);
           const { r: br, g: bg, b: bb } = _hexToRgb(color);
@@ -1580,11 +1576,11 @@ const Panels = (() => {
           break;
         }
         case 'scroller': {
-          // classic sine-wave text scroller (and stylized variants). picks
-          // a random message from the pool matching the current
-          // spacer_state, and re-picks whenever the state changes or the
-          // current message finishes scrolling off — so it never just
-          // marches through the list in order.
+         
+         
+         
+         
+         
           ctx.fillStyle = 'rgba(2,4,6,0.3)';
           ctx.fillRect(0, 0, w, hg);
           const S = modeData.scroller;
@@ -1600,9 +1596,9 @@ const Panels = (() => {
           const styleFn = SCROLLER_STYLES[styleName] || SCROLLER_STYLES.sine;
           const fontPx = Math.max(16, Math.floor(hg * 0.35));
           ctx.font = `${fontPx}px monospace`;
-          // banner uses fixed-width ascii-art glyph cells instead of the
-          // font's own character metrics, so its scroll speed/wrap math
-          // needs a different charW than the text-rendering styles
+         
+         
+         
           const bannerCell = Math.max(3, Math.floor(fontPx / 6));
           const charW = styleName === 'banner' ? (6 * bannerCell) : (ctx.measureText('M').width || 14);
           const cy = hg / 2;
@@ -1616,8 +1612,8 @@ const Panels = (() => {
           break;
         }
         case 'voronoi': {
-          // animated voronoi cell diagram — nearest-seed coloring on a
-          // downsampled grid, seeds drift slowly
+         
+         
           const block = 6;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           const cells = modeData.voronoi.cells;
@@ -1644,8 +1640,8 @@ const Panels = (() => {
           break;
         }
         case 'wobble': {
-          // concentric rings distorted by a moving sine offset — classic
-          // "wobbler" effect applied to a plain radial pattern
+         
+         
           ctx.fillStyle = '#000';
           ctx.fillRect(0, 0, w, hg);
           const cx = w / 2, cy = hg / 2;
@@ -1664,7 +1660,7 @@ const Panels = (() => {
           break;
         }
         case 'lens': {
-          // rotating radial "lens flare" style streaks + soft core glow
+         
           ctx.fillStyle = '#000';
           ctx.fillRect(0, 0, w, hg);
           const cx = w / 2, cy = hg / 2;
@@ -1689,9 +1685,9 @@ const Panels = (() => {
           break;
         }
         case 'floorgrid': {
-          // perspective floor grid receding toward a horizon, classic
-          // synthwave/demoscene "3D floor" made of simple horizontal +
-          // converging vertical lines (cheap, no real 3D math needed)
+         
+         
+         
           ctx.fillStyle = '#000';
           ctx.fillRect(0, 0, w, hg);
           const horizon = hg * 0.42;
@@ -1722,8 +1718,8 @@ const Panels = (() => {
           break;
         }
         case 'bump': {
-          // 2D bump-mapped ripple: a moving light source over a sine
-          // height-field, shaded per-cell by the angle to the light
+         
+         
           const block = 6;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           modeData.bump.lightAngle += 0.02;
@@ -1744,9 +1740,9 @@ const Panels = (() => {
           break;
         }
         case 'wireframe': {
-          // real 3D wireframe: rotate verts on x/y/z, perspective-project
-          // to screen space, draw edges. shape swappable via
-          // opts.spacer_wireframe_shape ('cube' | 'pyramid' | 'octahedron').
+         
+         
+         
           ctx.fillStyle = '#000';
           ctx.fillRect(0, 0, w, hg);
           const opts = (h.win && h.win.opts) || {};
@@ -1759,13 +1755,13 @@ const Panels = (() => {
           const cosz = Math.cos(W.az), sinz = Math.sin(W.az);
           const scale = Math.min(w, hg) * 0.28;
           const cx = w / 2, cy = hg / 2;
-          const dist = 4; // camera distance for perspective divide
+          const dist = 4;
           const projected = shape.verts.map(([vx, vy, vz]) => {
-            // rotate X
+           
             let y1 = vy * cosx - vz * sinx, z1 = vy * sinx + vz * cosx;
-            // rotate Y
+           
             let x2 = vx * cosy + z1 * siny, z2 = -vx * siny + z1 * cosy;
-            // rotate Z
+           
             let x3 = x2 * cosz - y1 * sinz, y3 = x2 * sinz + y1 * cosz;
             const persp = dist / (dist + z2);
             return { x: cx + x3 * scale * persp, y: cy + y3 * scale * persp, depth: z2 };
@@ -1782,7 +1778,7 @@ const Panels = (() => {
             ctx.lineTo(p2.x, p2.y);
             ctx.stroke();
           });
-          // vertex dots, closer ones drawn slightly bigger/brighter
+         
           projected.forEach(p => {
             const alpha = Math.max(0.4, Math.min(1, 1 - p.depth * 0.3));
             ctx.fillStyle = `rgba(${br},${bg},${bb},${alpha})`;
@@ -1801,7 +1797,7 @@ const Panels = (() => {
     frame();
   }
 
-  // ── alerts (popup) ───────────────────────────────────────────────────
+ 
   const alerts = {
     mount(body, win) {
       body.classList.add('wm-term', 'alerts-body');
@@ -1822,7 +1818,7 @@ const Panels = (() => {
     },
   };
 
-  // ── redeem_player (popup) ────────────────────────────────────────────
+ 
   const redeem_player = {
     mount(body, win) {
       if (win && win.opts && win.opts.bg_color) body.style.backgroundColor = win.opts.bg_color;
@@ -1905,7 +1901,7 @@ const Panels = (() => {
     playNextMedia(h, wm, winId);
   }
 
-  // ── pngtuber (topmost) ───────────────────────────────────────────────
+ 
   const pngtuber = {
     mount(body) {
       body.style.background = 'transparent';
@@ -1957,9 +1953,123 @@ const Panels = (() => {
     h.img.classList.toggle('speaking', next === 'speaking');
   }
 
+  const notepadCache = new Map();
+  let latestCache = { follower: '', sub: '' };
+  function cacheMsg(key, msg) {
+    if (key === 'notepad' && msg) notepadCache.set(msg.id, msg.value || '');
+    else if (key === 'latest') latestCache = msg || { follower: '', sub: '' };
+  }
+
+  let fxStyled = false;
+  function ensureFxStyles() {
+    if (fxStyled) return;
+    fxStyled = true;
+    const st = document.createElement('style');
+    st.textContent = `
+@keyframes fxwave{0%,100%{transform:translateY(-.22em)}50%{transform:translateY(.22em)}}
+@keyframes fxorbit{0%{transform:translate(.08em,0)}25%{transform:translate(0,.08em)}50%{transform:translate(-.08em,0)}75%{transform:translate(0,-.08em)}100%{transform:translate(.08em,0)}}
+@keyframes fxshake{0%{transform:translate(.04em,.03em) rotate(2deg)}20%{transform:translate(-.05em,.02em) rotate(-3deg)}40%{transform:translate(.03em,-.05em) rotate(1deg)}60%{transform:translate(-.03em,-.03em) rotate(-2deg)}80%{transform:translate(.05em,.04em) rotate(3deg)}100%{transform:translate(0,0)}}
+@keyframes fxhop{0%,100%{transform:translateY(0) scaleY(.9)}40%{transform:translateY(-.45em) scaleY(1.1)}70%{transform:translateY(0) scaleY(.85)}}
+@keyframes fxgrow{0%,100%{transform:scale(1)}50%{transform:scale(1.4)}}
+@keyframes fxgrad{to{background-position-x:4em}}`;
+    document.head.appendChild(st);
+  }
+  function fxChars(html, anim, dur, step, timing) {
+    let i = 0;
+    return html.replace(/(<[^>]+>)|(&[#\w]+;|[\s\S])/g, (m, tag, ch) => {
+      if (tag) return tag;
+      const d = (-(i++) * step).toFixed(2);
+      return `<span style="display:inline-block;white-space:pre;animation:${anim} ${dur}s ${timing} ${d}s infinite">${ch}</span>`;
+    });
+  }
+  function fx(s) {
+    ensureFxStyles();
+    const R = (re, f) => { s = s.replace(re, f); };
+    R(/\*\^\*\^(.+?)\*\^\*\^/g, (m, t) => `<span style="font-weight:900;font-size:1.25em">${t}</span>`);
+    R(/%\$(.+?)\$%/g, (m, t) => `<span style="font-family:monospace;letter-spacing:.06em;text-rendering:optimizeSpeed;-webkit-font-smoothing:none;text-shadow:1px 0 currentColor,0 1px currentColor">${t}</span>`);
+    R(/\$!(.+?)!\$/g, (m, t) => `<span style="text-shadow:0 0 3px currentColor,0 0 8px currentColor,0 0 16px currentColor,0 0 28px currentColor">${t}</span>`);
+    R(/##([0-9a-fA-F]{3,6})\|([0-9a-fA-F]{3,6}):(.+?)##/g, (m, a, b, t) => `<span style="background-image:linear-gradient(90deg,#${a},#${b},#${a});background-size:4em auto;background-repeat:repeat-x;-webkit-background-clip:text;background-clip:text;color:transparent;animation:fxgrad 2s linear infinite">${t}</span>`);
+    R(/##([0-9a-fA-F]{3,6}):(.+?)##/g, (m, c, t) => `<span style="color:#${c}">${t}</span>`);
+    R(/!\*(.+?)\*!/g, (m, t) => fxChars(t, 'fxshake', 0.3, 0.07, 'steps(1)'));
+    R(/&gt;\*(.+?)\*&lt;/g, (m, t) => fxChars(t, 'fxgrow', 1.2, 0.1, 'ease-in-out'));
+    R(/\^&gt;(.+?)&lt;\^/g, (m, t) => fxChars(t, 'fxhop', 0.9, 0.09, 'ease-in-out'));
+    R(/-#(.+?)#-/g, (m, t) => fxChars(t, 'fxwave', 1.6, 0.12, 'ease-in-out'));
+    R(/\(#(.+?)#\)/g, (m, t) => fxChars(t, 'fxorbit', 0.9, 0.13, 'linear'));
+    R(/%(.+?)%/g, (m, t) => `<span style="font-size:.7em;vertical-align:super">${t}</span>`);
+    return s;
+  }
+  function rich(t) { return mdInline(escapeHtml(t)); }
+
+  function mdInline(s) {
+    return fx(s).replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<i>$2</i>')
+      .replace(/~~([^~]+)~~/g, '<s>$1</s>');
+  }
+  function mdLine(raw) {
+    const e = escapeHtml(raw);
+    let m;
+    if ((m = e.match(/^(#{1,3})\s+(.*)$/))) return `<div style="font-weight:700;font-size:${1.5 - 0.15 * m[1].length}em">${mdInline(m[2])}</div>`;
+    if ((m = e.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/))) return `<div>${m[1] === ' ' ? '☐' : '☑'} ${mdInline(m[2])}</div>`;
+    if ((m = e.match(/^\s*[-*]\s+(.*)$/))) return `<div>• ${mdInline(m[1])}</div>`;
+    if ((m = e.match(/^&gt;\s(.*)$/))) return `<div style="opacity:.7;border-left:2px solid currentColor;padding-left:6px">${mdInline(m[1])}</div>`;
+    return `<div>${mdInline(e) || '&nbsp;'}</div>`;
+  }
+  function notepadRender(h, text) {
+    const md = !h.win.opts || h.win.opts.notepad_markdown !== false;
+    if (md) {
+      h.box.style.whiteSpace = 'normal';
+      h.box.innerHTML = String(text).split('\n').map(mdLine).join('');
+    } else {
+      h.box.style.whiteSpace = 'pre-wrap';
+      h.box.textContent = text;
+    }
+  }
+  const notepad = {
+    mount(body, win) {
+      body.classList.add('wm-term');
+      body.style.whiteSpace = 'normal';
+      body.style.overflow = 'auto';
+      applyTextOpts(body, win && win.opts);
+      const box = $create('div');
+      body.appendChild(box);
+      const h = { body, box, win };
+      notepadRender(h, notepadCache.get(win.id) || '');
+      return h;
+    },
+    onState(h, key, msg, o, wm, winId) {
+      if (key !== 'notepad' || !msg || msg.id !== winId) return;
+      notepadRender(h, msg.value || '');
+    },
+    applyOpts(h, win) {
+      h.win = win;
+      applyTextOpts(h.body, win.opts);
+      notepadRender(h, notepadCache.get(win.id) || '');
+    },
+  };
+
+  function latestRender(h) {
+    const mode = (h.win && h.win.opts && h.win.opts.latest_show) || 'both';
+    const rows = [];
+    if (mode !== 'sub') rows.push(['follower', latestCache.follower]);
+    if (mode !== 'follower') rows.push(['sub', latestCache.sub]);
+    h.body.innerHTML = rows.map(([k, v]) => `<span class="line">${k.padEnd(9)}${escapeHtml(v || '—')}</span>`).join('');
+  }
+  const latest = {
+    mount(body, win) {
+      body.classList.add('wm-term');
+      applyTextOpts(body, win && win.opts);
+      const h = { body, win };
+      latestRender(h);
+      return h;
+    },
+    onState(h, key) { if (key === 'latest') latestRender(h); },
+    applyOpts(h, win) { h.win = win; applyTextOpts(h.body, win.opts); latestRender(h); },
+  };
+
   return {
     now_playing, lyrics, status, socials, message_bar, screen, chat, extra, spacer,
     key_panel, alerts, redeem_player, pngtuber, words, tts_transcript, ad_warning, canvas,
-    escapeHtml,
+    notepad, latest, cacheMsg, escapeHtml,
   };
 })();

@@ -100,8 +100,8 @@ TWITCH_STATS_INTERVAL = 60
 TWITCH_USER_TOKEN = os.environ.get("TWITCH_USER_TOKEN", "").replace("oauth:", "")
 
 TWITCH_TOKEN_PATH = BASE_DIR / "twitch_token.json"
-TWITCH_AUTH_REDIRECT_URI = "http://localhost:1752/callback"
-TWITCH_AUTH_PORT = 1752
+TWITCH_AUTH_REDIRECT_URI = os.environ.get("TWITCH_AUTH_REDIRECT_URI", "http://localhost:1752/callback")
+TWITCH_AUTH_PORT = int(os.environ.get("TWITCH_AUTH_PORT", "1752"))
 TWITCH_AUTH_SCOPES = (
     "chat:read "
     "chat:edit "
@@ -157,11 +157,12 @@ AD_REMINDER_END_MESSAGE = os.environ.get(
 WOS_URL = os.environ.get("WOS_URL", "https://wos.gg/")
 
 # ── canvas (collaborative pixel art) ────────────────────────────────────
-CANVAS_SIZE = int(os.environ.get("CANVAS_SIZE", "100"))
+CANVAS_SIZE = int(os.environ.get("CANVAS_SIZE", "20"))
 CANVAS_PUBLIC_PORT = int(os.environ.get("CANVAS_PUBLIC_PORT", "1760"))
 CANVAS_PUBLIC_BASE_URL = os.environ.get("CANVAS_PUBLIC_BASE_URL", f"http://localhost:{CANVAS_PUBLIC_PORT}")
 CANVAS_PUBLIC_COOKIE = "streamd_canvas_session"
 CANVAS_PUBLIC_REDIRECT_PATH = "/canvas/callback"
+CANVAS_PUBLIC_REDIRECT_URI = os.environ.get("CANVAS_PUBLIC_REDIRECT_URI", CANVAS_PUBLIC_BASE_URL.rstrip("/") + CANVAS_PUBLIC_REDIRECT_PATH)
 CANVAS_PUBLIC_TWITCH_SCOPE = "user:read:email"
 CANVAS_SHOW_SECONDS = int(os.environ.get("CANVAS_SHOW_SECONDS", "5"))
 CANVAS_MIN_INTERVAL_MIN = int(os.environ.get("CANVAS_MIN_INTERVAL_MIN", "30"))

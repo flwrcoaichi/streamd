@@ -16,6 +16,7 @@ from config import (
 from state import state
 from broadcast import broadcast_sync, send_chat
 from twitch_auth import get_twitch_user_token
+from latest import set_latest
 
 _twitch_user_id = None  # kept local like the original (module-level, not per-instance in original either... but original used a module global)
 
@@ -254,10 +255,13 @@ def run_twitch_stats_thread() -> None:
 
             followers = None
             try:
-                followers = _helix_get_user(
+                fdata = _helix_get_user(
                     "https://api.twitch.tv/helix/channels/followers",
                     {"broadcaster_id": uid, "first": 1},
-                ).get("total")
+                )
+                followers = fdata.get("total")
+                if not state.data["latest"].get("follower") and fdata.get("data"):
+                    set_latest("follower", fdata["data"][0].get("user_name"))
             except Exception as e:
                 log.warning("[twitch] followers count failed (needs moderator:read:followers on cocoFLWR's token): %s", e)
 
@@ -411,6 +415,7 @@ async def twitch_eventsub_loop() -> None:
                     event = payload.get("event", {})
 
                     if sub_type == "channel.follow":
+                        set_latest("follower", event.get("user_name"))
                         broadcast_sync({"type": "follow", "user": event.get("user_name", "someone")})
                     elif sub_type == "channel.raid":
                         broadcast_sync({
@@ -424,6 +429,7 @@ async def twitch_eventsub_loop() -> None:
                         user_input = event.get("user_input", "")
                         handle_redemption(reward, user, user_input)
                     elif sub_type == "channel.subscribe":
+                        set_latest("sub", event.get("user_name") or event.get("user_login"))
                         if not event.get("is_gift"):
                             user = event.get("user_name") or event.get("user_login", "someone")
                             broadcast_sync({"type": "alert", "alert": "sub", "message": user, "sub": event.get("tier", "")})
@@ -431,6 +437,7 @@ async def twitch_eventsub_loop() -> None:
                     elif sub_type == "channel.subscription.message":
                         user = event.get("user_name") or event.get("user_login", "someone")
                         months = event.get("cumulative_months", 0)
+                        set_latest("sub", user)
                         broadcast_sync({"type": "alert", "alert": "resub", "message": user, "sub": f"{months} months"})
                         grant_sub_credits(user)
                     elif sub_type == "channel.subscription.gift":
