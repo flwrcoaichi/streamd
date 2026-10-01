@@ -1,5 +1,4 @@
 
-
 const Panels = (() => {
 
   const $create = (tag, cls) => { const e = document.createElement(tag); if (cls) e.className = cls; return e; };

@@ -84,7 +84,7 @@
 .wm-cursor { display: inline-block; width: 0.6em; background: var(--wm-ink); margin-left: 1px; animation: wmBlink 1s step-end infinite; }
 @keyframes wmBlink { 50% { opacity: 0; } }
 
-
+/* now_playing */
 .np-bg { position: absolute; inset: 0; overflow: hidden; }
 .np-art { position: absolute; inset: 0; background-size: cover; background-position: center; filter: brightness(0.55); }
 .np-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; filter: brightness(0.5); }
@@ -95,7 +95,7 @@
 .np-track { font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .np-artist { font-size: 0.75rem; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-
+/* lyrics */
 .lyrics-box { display: flex; flex-direction: column; gap: 2px; }
 .lyric-line { opacity: 0.45; transition: opacity 0.15s, font-weight 0.15s; }
 .lyric-line.active { opacity: 1; font-weight: 700; }
@@ -103,7 +103,7 @@
 .lyric-word { transition: opacity 0.08s; }
 .lyric-line.active .lyric-word.sung { text-decoration: underline; }
 
-
+/* chat */
 .wm-chat-body { padding: 6px 8px; overflow-y: auto; font-family: var(--wm-mono); font-size: 0.8rem; line-height: 1.4; }
 .chat-line { margin-bottom: 2px; }
 .chat-user { font-weight: 700; }
@@ -127,15 +127,15 @@
 .key-panel-diamond { border-radius: 8px; transform: rotate(45deg); }
 .key-panel-diamond span { transform: rotate(-45deg); display: inline-block; }
 
-
+/* spacer */
 .spacer-body { padding: 0; }
 .spacer-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 .spacer-pre { padding: 8px 10px; }
 
-
+/* alerts popup */
 .alerts-body { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px; }
 
-
+/* pngtuber */
 .pngtuber-frame { max-width: 100%; max-height: 100%; transition: opacity 0.12s ease; }
 .pngtuber-frame.speaking { animation: wmBob 0.42s ease-in-out infinite; }
 @keyframes wmBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
@@ -149,10 +149,6 @@ body { width: 1440px; height: 1080px; }
 </head>
 <body>
 <div id="stage"></div>
-
-<script>
-
-</script>
 <script src="/wm.js"></script>
 <script src="/panels.js"></script>
 <script>
@@ -181,4 +177,109 @@ body { width: 1440px; height: 1080px; }
   let ws = null;
   const layoutName = (new URLSearchParams(location.search)).get('layout') || 'main';
   const overlayState = { channel: (new URLSearchParams(location.search)).get('channel') || '' };
-  const handles = new Map();
+  const handles = new Map(); // winId -> panel handle
+
+  const wm = createWM({
+    stageEl: document.getElementById('stage'),
+    editable: false,
+    getRenderer: (panelName) => Panels[panelName],
+    renderBody: (win, bodyEl) => {
+      const renderer = Panels[win.panel];
+      if (!renderer) { bodyEl.textContent = 'unknown panel: ' + win.panel; return null; }
+      const h = renderer.mount(bodyEl, win, overlayState);
+      handles.set(win.id, h);
+      return h;
+    },
+    onWindowOptsChanged: (win, rec) => {
+      const renderer = Panels[win.panel];
+      const h = handles.get(win.id);
+      if (renderer && renderer.applyOpts && h) renderer.applyOpts(h, win);
+    },
+  });
+
+  function broadcastToAllPanels(key, msg) {
+    Panels.cacheMsg(key, msg);
+    wm.forEachWindow((win) => {
+      const renderer = Panels[win.panel];
+      const h = handles.get(win.id);
+      if (renderer && h && renderer.onState) {
+        renderer.onState(h, key, msg, overlayState, wm, win.id);
+      }
+    });
+  }
+
+  function applyLayoutFromServer(layout) {
+    if (Array.isArray(layout) && layout.length) {
+      wm.setLayout(layout, { silent: true });
+    } else {
+      wm.setLayout(DEFAULT_LAYOUT, { silent: true });
+    }
+  }
+
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen = () => {};
+    ws.onclose = () => setTimeout(connect, 2000);
+    ws.onerror = () => ws.close();
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      handleMessage(msg);
+    };
+  }
+
+  function handleMessage(msg) {
+    const t = msg.type;
+    if (t === 'init') {
+      const s = msg.state || {};
+      applyLayoutFromServer((s.wm_layouts && s.wm_layouts[layoutName]) || (layoutName === 'main' ? s.wm_layout : null));
+      if (s.music) broadcastToAllPanels('music', s.music);
+      if (s.stats) broadcastToAllPanels('stats', s.stats);
+      if (s.status) broadcastToAllPanels('status', { value: s.status });
+      if (s.scene) broadcastToAllPanels('scene', { value: s.scene });
+      if (s.extra !== undefined) broadcastToAllPanels('extra', { value: s.extra });
+      if (s.pngtuber) broadcastToAllPanels('pngtuber', s.pngtuber);
+      if (s.words) broadcastToAllPanels('words', s.words);
+      if (s.ads) broadcastToAllPanels('ads_state', s.ads);
+      if (s.latest) broadcastToAllPanels('latest', s.latest);
+      Object.entries(s.notepads || {}).forEach(([id, value]) => broadcastToAllPanels('notepad', { id, value }));
+      if (s.key_panel) broadcastToAllPanels('key_panel', s.key_panel);
+      if (s.canvas) broadcastToAllPanels('canvas_state', s.canvas);
+      (s.chat || []).forEach(c => broadcastToAllPanels('chat', c));
+      fetch('/pngtuber-list').then(r => r.json()).then(a => broadcastToAllPanels('assets', a)).catch(() => {});
+      if (s.tts) broadcastToAllPanels('tts_state', s.tts);
+      return;
+    }
+    if (t === 'wm_layout') { if ((msg.name || 'main') === layoutName) applyLayoutFromServer(msg.layout); return; }
+    if (t === 'music') { broadcastToAllPanels('music', msg); return; }
+    if (t === 'music_video') { broadcastToAllPanels('music_video', msg); return; }
+    if (t === 'stats') { broadcastToAllPanels('stats', msg); return; }
+    if (t === 'status') { broadcastToAllPanels('status', { value: msg.value }); return; }
+    if (t === 'scene') { broadcastToAllPanels('scene', { value: msg.value }); return; }
+    if (t === 'message') { broadcastToAllPanels('message', { value: msg.value }); return; }
+    if (t === 'extra') { broadcastToAllPanels('extra', { value: msg.value }); return; }
+    if (t === 'chat') { broadcastToAllPanels('chat', msg); return; }
+    if (t === 'lyrics') { broadcastToAllPanels('lyrics', msg); return; }
+    if (t === 'pngtuber') { broadcastToAllPanels('pngtuber', msg.pngtuber); return; }
+    if (t === 'tts_state') { broadcastToAllPanels('tts_state', msg.tts); return; }
+    if (t === 'play_media') { broadcastToAllPanels('play_media', msg); return; }
+    if (t === 'alert') { broadcastToAllPanels('alert_event', msg); return; }
+    if (t === 'follow') { broadcastToAllPanels('alert_event', { alert: 'follow', message: msg.user + ' followed!' }); return; }
+    if (t === 'raid') { broadcastToAllPanels('alert_event', { alert: 'raid', message: msg.user + ' raided!', sub: (msg.viewers || 0) + ' raiders' }); return; }
+    if (t === 'redeem_alert') { broadcastToAllPanels('alert_event', { alert: 'redeem', message: msg.user + ' → ' + msg.reward, sub: msg.message || '' }); return; }
+    if (t === 'words_state') { broadcastToAllPanels('words', msg.words); return; }
+    if (t === 'key_panel') { broadcastToAllPanels('key_panel', msg.key_panel); return; }
+    if (t === 'ads_state') { broadcastToAllPanels('ads_state', msg.ads); return; }
+    if (t === 'canvas_state') { broadcastToAllPanels('canvas_state', msg.canvas); return; }
+    if (t === 'canvas_pixel') { broadcastToAllPanels('canvas_pixel', msg); return; }
+    if (t === 'notepad') { broadcastToAllPanels('notepad', msg); return; }
+    if (t === 'latest') { broadcastToAllPanels('latest', msg.latest); return; }
+  }
+
+  setInterval(() => broadcastToAllPanels('tick', {}), 300);
+
+  connect();
+})();
+</script>
+</body>
+</html>

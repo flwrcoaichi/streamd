@@ -17,11 +17,28 @@
   <audio id="scoreAudio"></audio>
 </div>
 <script>
+// tangia-like redeem player — connects to the same control websocket as the
+// rest of the overlays and plays whatever file a "play_media" broadcast
+// points at. add this as a Browser Source in OBS (transparent bg), sized
+// to your scene. files live in the /media/ directory next to the script
+// (STREAM_MEDIA_DIR / redeems/media by default).
+//
+// a redeem can specify:
+//   file  — a video (mp4/webm/mov) or audio (mp3/wav/ogg) file, required
+//   audio — an optional second audio file to play AT THE SAME TIME as
+//           `file` (e.g. score a silent/muted clip with a specific song,
+//           or layer music under a video that already has its own sound)
 const WS_URL = "ws://localhost:8877";
 const video      = document.getElementById("player");
-const mainAudio  = document.getElementById("mainAudio");  
-const scoreAudio = document.getElementById("scoreAudio"); 
+const mainAudio  = document.getElementById("mainAudio");   // plays `file` when it's audio-only
+const scoreAudio = document.getElementById("scoreAudio");  // plays the optional `audio` companion track
 
+// OBS's embedded Chromium enforces the same autoplay-with-sound rules as a
+// regular browser: unmuted play() can get silently rejected until the page
+// has "user activation". we try unmuted first (so a video's own audio
+// track and any companion track actually play), and only fall back to
+// muted playback if the browser blocks it — better a silent clip than a
+// stuck queue.
 let queue = [];
 let playing = false;
 let watchdogs = [];
@@ -36,15 +53,18 @@ function clearWatchdogs() {
 }
 
 function armWatchdog(el, onDone) {
- 
- 
- 
+  // belt-and-suspenders: if 'ended'/'error' never fire for some reason
+  // (codec quirk, OBS source getting hidden/shown, etc), this guarantees
+  // the queue un-sticks itself instead of dying after one play forever.
   const guessMs = (isFinite(el.duration) && el.duration > 0)
     ? (el.duration * 1000) + 3000
     : 60000;
   watchdogs.push(setTimeout(onDone, guessMs));
 }
 
+// plays `el` with `url`, trying unmuted first and falling back to muted
+// autoplay if the browser rejects it. resolves once playback has actually
+// started (or been given up on).
 function playEl(el, url) {
   return new Promise((resolve) => {
     el.muted = false;
@@ -61,6 +81,10 @@ function playEl(el, url) {
   });
 }
 
+// tracks how many of the (up to 2) concurrently-playing elements for the
+// current queue item are still going, so we only advance the queue once
+// everything for this item has actually finished — e.g. a companion song
+// longer than its video won't get cut off early.
 let activeCount = 0;
 
 function trackElement(el) {

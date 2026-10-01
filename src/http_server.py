@@ -42,6 +42,7 @@ _REDEEM_PLAYER_HTML = """<!doctype html>
   <audio id="scoreAudio"></audio>
 </div>
 <script>
+
 const WS_URL = "ws://localhost:8877";
 const video      = document.getElementById("player");
 const mainAudio  = document.getElementById("mainAudio");  
