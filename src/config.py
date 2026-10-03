@@ -164,6 +164,9 @@ CANVAS_PUBLIC_COOKIE = "streamd_canvas_session"
 CANVAS_PUBLIC_REDIRECT_PATH = "/canvas/callback"
 CANVAS_PUBLIC_REDIRECT_URI = os.environ.get("CANVAS_PUBLIC_REDIRECT_URI", CANVAS_PUBLIC_BASE_URL.rstrip("/") + CANVAS_PUBLIC_REDIRECT_PATH)
 CANVAS_PUBLIC_TWITCH_SCOPE = "user:read:email"
+# the broadcaster (TWITCH_BROADCASTER) always has infinite pixels; add more mods here, comma separated
+CANVAS_UNLIMITED_USERS = {NICK.lower()} | {u.strip().lower() for u in os.environ.get("CANVAS_UNLIMITED_USERS", "").split(",")}
+CANVAS_UNLIMITED_USERS.discard("")
 CANVAS_SHOW_SECONDS = int(os.environ.get("CANVAS_SHOW_SECONDS", "5"))
 CANVAS_MIN_INTERVAL_MIN = int(os.environ.get("CANVAS_MIN_INTERVAL_MIN", "30"))
 CANVAS_MAX_INTERVAL_MIN = int(os.environ.get("CANVAS_MAX_INTERVAL_MIN", "60"))

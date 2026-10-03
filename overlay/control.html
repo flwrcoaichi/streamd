@@ -4,93 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>streamd — control</title>
+<link rel="stylesheet" href="/wm.css">
 <style>
-:root {
-  --wm-ink: #ffffff;
-  --wm-bg: rgba(8, 10, 8, 0);
-  --wm-bg-solid: #0a0c0d;
-  --wm-header-ink: #0a0d0a;
-  --wm-mono: 'Courier New', Courier, ui-monospace, monospace;
-  --wm-accent: #ffffff;
-}
-
-#stage { position: fixed; inset: 0; overflow: hidden; font-family: var(--wm-mono); }
-
-.wm-win {
-  position: absolute;
-  border: 1px solid var(--wm-ink);
-  background: var(--wm-bg);
-  display: flex;
-  flex-direction: column;
-  color: var(--wm-ink);
-  box-sizing: border-box;
-}
-
-.wm-header {
-  flex: none; height: 20px; line-height: 20px;
-  background: var(--wm-ink); color: var(--wm-header-ink);
-  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em;
-  padding: 0 8px; text-transform: lowercase;
-  display: flex; align-items: center; justify-content: space-between;
-  white-space: nowrap; overflow: hidden; cursor: default;
-}
-.wm-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wm-close { cursor: pointer; padding: 0 4px; flex: none; }
-.wm-close:hover { opacity: 0.6; }
-.wm-body { flex: 1; min-height: 0; overflow: hidden; position: relative; font-size: 0.85rem; line-height: 1.35; }
-.wm-resize-handle {
-  position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize;
-  background: repeating-linear-gradient(135deg, var(--wm-ink) 0px, var(--wm-ink) 1px, transparent 1px, transparent 4px);
-  opacity: 0.7;
-}
-.wm-win.wm-selected { outline: 2px dashed var(--wm-ink); outline-offset: 2px; }
-.wm-kind-popup { }
-.wm-kind-topmost { z-index: 999999 !important; }
-.wm-kind-topmost .wm-body { pointer-events: auto; }
-.wm-kind-topmost .wm-header { pointer-events: auto; }
-.wm-term { font-family: var(--wm-mono); white-space: pre-wrap; padding: 8px 10px; height: 100%; box-sizing: border-box; overflow: hidden; }
-.wm-term .line { display: block; white-space: pre; overflow: hidden; text-overflow: clip; }
-.wm-dim { opacity: 0.55; }
-.wm-cursor { display: inline-block; width: 0.6em; background: var(--wm-ink); margin-left: 1px; animation: wmBlink 1s step-end infinite; }
-@keyframes wmBlink { 50% { opacity: 0; } }
-</style>
-<style>
-.np-bg { position: absolute; inset: 0; overflow: hidden; }
-.np-art { position: absolute; inset: 0; background-size: cover; background-position: center; filter: brightness(0.55); }
-.np-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: none; filter: brightness(0.5); }
-.np-video.active { display: block; }
-.np-grad { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0) 40%, rgba(0,0,0,0.75) 100%); }
-.np-fg { position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px; display: flex; gap: 6px; align-items: baseline; z-index: 2; }
-.np-status { font-size: 0.7rem; opacity: 0.8; flex: none; }
-.np-track { font-weight: 700; font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.np-artist { font-size: 0.75rem; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lyrics-box { display: flex; flex-direction: column; gap: 2px; }
-.lyric-line { opacity: 0.45; transition: opacity 0.15s, font-weight 0.15s; }
-.lyric-line.active { opacity: 1; font-weight: 700; }
-.lyric-line.next { opacity: 0.7; }
-.lyric-word { transition: opacity 0.08s; }
-.lyric-line.active .lyric-word.sung { text-decoration: underline; }
-.wm-chat-body { padding: 6px 8px; overflow-y: auto; font-family: var(--wm-mono); font-size: 0.8rem; line-height: 1.4; }
-.chat-line { margin-bottom: 2px; }
-.chat-user { font-weight: 700; }
-.chat-badge { height: 1em; vertical-align: middle; margin-right: 3px; }
-.wm-emote { height: 1.5em; vertical-align: middle; display: inline-block; }
-.wm-chat-body::-webkit-scrollbar { width: 6px; }
-.wm-chat-body::-webkit-scrollbar-thumb { background: var(--wm-ink); opacity: 0.3; }
-.key-panel-body { background: rgba(10, 12, 13, 0.2); }
-.key-panel-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; width: 100%; height: 100%; }
-.key-panel-key {
-  display: inline-flex; align-items: center; justify-content: center; font-weight: 700; letter-spacing: 0.08em;
-  border: 2px solid rgba(255,255,255,0.18); background: var(--key-bg, rgba(15,19,22,0.9)); color: var(--key-text, #f5f7fa);
-  box-shadow: 0 0 0 1px rgba(255,255,255,0.08) inset; transition: transform 0.08s ease, opacity 0.12s ease, box-shadow 0.2s ease;
-  user-select: none; font-size: 0.72rem; flex: none;
-}
-.key-panel-key.active { transform: translateY(1px) scale(0.97); box-shadow: 0 0 12px color-mix(in srgb, var(--key-color, #7ef7c6) 60%, transparent), inset 0 0 0 1px rgba(0,0,0,0.2); }
-.key-panel-round { border-radius: 999px; }
-.key-panel-square { border-radius: 6px; }
-.key-panel-pill { border-radius: 999px; }
-.key-panel-diamond { border-radius: 8px; transform: rotate(45deg); }
-.key-panel-diamond span { transform: rotate(-45deg); display: inline-block; }
 .key-panel-editor-preview {
   position: relative; height: 120px; margin-top: 8px; border: 1px solid var(--line-lit); background: rgba(10, 12, 13, 0.28);
   border-radius: 4px; overflow: hidden; cursor: grab; user-select: none;
@@ -124,13 +39,6 @@
   border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
   user-select: none; touch-action: none;
 }
-.spacer-body { padding: 0; }
-.spacer-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-.spacer-pre { padding: 8px 10px; }
-.alerts-body { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; gap: 4px; }
-.pngtuber-frame { max-width: 100%; max-height: 100%; transition: opacity 0.12s ease; }
-.pngtuber-frame.speaking { animation: wmBob 0.42s ease-in-out infinite; }
-@keyframes wmBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 </style>
 <style>
   @font-face { font-family: 'JetBrains Mono'; src: local('JetBrains Mono'), local('JetBrainsMono-Regular'); }
@@ -310,6 +218,7 @@
       <option value="tts_transcript">tts transcript</option>
       <option value="ad_warning">ad warning (popup)</option>
       <option value="canvas">canvas (popup)</option>
+      <option value="status_text">status text</option>
       <option value="notepad">notepad</option>
       <option value="latest">latest follower / sub</option>
     </select>
@@ -494,6 +403,11 @@ Space|#8be9fd|pill|20|12</textarea>
         <select id="ed-border-mode"><option value="default">default</option><option value="solid">solid</option><option value="pixel">pixel gradient</option></select>
         <div class="field-row"><input type="color" id="ed-border-color" value="#ffffff"><input type="color" id="ed-border-color2" value="#7ef7c6"></div>
       </div>
+      <div class="field">
+        <label><input type="checkbox" id="ed-title-color-on" style="width:auto;"> custom title text color</label>
+        <input type="color" id="ed-title-color" value="#0a0d0a">
+        <div class="hint">unchecked = auto contrast against the border color</div>
+      </div>
       <div class="field" id="ed-spacer-pixel-row" style="display:none;">
         <label>spacer pixel size</label>
         <input type="number" id="ed-spacer-pixel" min="1" max="12" value="2">
@@ -627,6 +541,7 @@ Space|#8be9fd|pill|20|12</textarea>
 
 <script src="/wm.js"></script>
 <script src="/panels.js"></script>
+<script src="/default-layout.js"></script>
 <script>
 const WS_URL = `ws://${location.hostname}:8877`;
 let ws = null;
@@ -644,6 +559,36 @@ function send(msg) {
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // ── tabs ──────────────────────────────────────────────────────────────
+function enableAlpha(input) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:2px';
+  input.parentNode.insertBefore(wrap, input);
+  wrap.appendChild(input);
+  input.style.width = '100%';
+  const slider = document.createElement('input');
+  slider.type = 'range'; slider.min = 0; slider.max = 100; slider.value = 100;
+  slider.title = 'opacity';
+  slider.style.cssText = 'width:100%;padding:0;margin:0';
+  wrap.appendChild(slider);
+  const base = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  Object.defineProperty(input, 'value', {
+    get() {
+      const hex = base.get.call(input);
+      const a = Math.round(slider.value * 2.55);
+      return a >= 255 ? hex : hex + a.toString(16).padStart(2, '0');
+    },
+    set(v) {
+      v = String(v || '');
+      let a = 100;
+      if (/^#[0-9a-f]{8}$/i.test(v)) { a = Math.round(parseInt(v.slice(7), 16) / 2.55); v = v.slice(0, 7); }
+      base.set.call(input, v);
+      slider.value = a;
+    },
+  });
+  slider.addEventListener('input', () => input.dispatchEvent(new Event('input', { bubbles: true })));
+}
+document.querySelectorAll('#view-layout input[type=color]').forEach(enableAlpha);
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -653,14 +598,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (btn.dataset.view === 'layout') fitStage();
   };
 });
-const SPACER_COLOR_DEFAULTS = {
-  bootlog: '#d8dee2', typewriter: '#4ade80', matrix: '#00ff66', static: '#ffffff',
-  fire: '#ff8c1a', starfield: '#5e9dff', oscilloscope: '#00ffaa', plasma: '#ff2fd6',
-  rain: '#5ec8ff', dna: '#7dffb0', pipes: '#ff9f2f', life: '#4ade80', waveform: '#00e0ff',
-  metaballs: '#ff4fa3', tunnel: '#00d4ff', rotozoom: '#ffcf40', copperbars: '#ff6b6b',
-  scroller: '#4ade80', voronoi: '#7d6bff', wobble: '#ff6bd6', lens: '#ffe27a',
-  floorgrid: '#39ff9e', bump: '#8f9dff', wireframe: '#5ef2ff',
-};
+const SPACER_COLOR_DEFAULTS = Panels.SPACER_COLOR_DEFAULTS;
 
 function snapKeyPanelValue(value) {
   const grid = Math.max(1, Number(wm && wm.currentGrid ? wm.currentGrid() : 1) || 1);
@@ -931,21 +869,6 @@ $('ed-spacer-kind').addEventListener('change', () => {
   $('ed-spacer-color').value = SPACER_COLOR_DEFAULTS[$('ed-spacer-kind').value] || '#00ff66';
 });
 // ── layout editor ─────────────────────────────────────────────────────
-const DEFAULT_LAYOUT = [
-  { id: 'now_playing', panel: 'now_playing', title: 'now playing', x: 1040, y: 20,  w: 380, h: 160, z: 1, kind: 'normal' },
-  { id: 'lyrics',      panel: 'lyrics',      title: 'lyrics',      x: 1040, y: 190, w: 380, h: 160, z: 1, kind: 'normal' },
-  { id: 'status',      panel: 'status',      title: 'pc status',   x: 20,   y: 900, w: 220, h: 130, z: 1, kind: 'normal' },
-  { id: 'socials',     panel: 'socials',     title: 'socials',     x: 20,   y: 780, w: 220, h: 70,  z: 1, kind: 'normal', opts: { social_lines: 'twitter: @vanillyn_net\ndiscord: @vanillyn' } },
-  { id: 'message_bar', panel: 'message_bar', title: 'message',    x: 20,   y: 740, w: 220, h: 36,  z: 1, kind: 'normal', opts: { text_color: '#d8dee2', bg_color: '#0a0c0d', font_size: 13, font_family: 'monospace' } },
-  { id: 'key_panel',   panel: 'key_panel', title: 'keys',        x: 260,  y: 620, w: 280, h: 120, z: 1, kind: 'normal', opts: { shape: 'round', size: 48, gap: 8, active_color: '#7ef7c6', inactive_color: '#1f2731', text_color: '#f5f7fa', keys: [{ key: 'w', label: 'W', shape: 'round', color: '#7ef7c6' }, { key: 'a', label: 'A', shape: 'square', color: '#7ef7c6' }, { key: 's', label: 'S', shape: 'square', color: '#7ef7c6' }, { key: 'd', label: 'D', shape: 'square', color: '#7ef7c6' }, { key: 'space', label: 'SPACE', shape: 'pill', color: '#8be9fd' }] } },
-  { id: 'alerts',      panel: 'alerts',      title: 'alert',       x: 530,  y: 40,  w: 420, h: 140, z: 500, kind: 'popup', visible: false },
-  { id: 'redeem_player', panel: 'redeem_player', title: 'redeem',  x: 460,  y: 300, w: 520, h: 440, z: 500, kind: 'popup', visible: false },
-  { id: 'pngtuber',    panel: 'pngtuber',    title: 'pngtuber',    x: 900,  y: 500, w: 400, h: 580, z: 999999, kind: 'topmost' },
-  { id: 'words',       panel: 'words',       title: 'words',       x: 300,  y: 200, w: 600, h: 500, z: 800, kind: 'normal', opts: { wos_url: 'https://wos.gg/' } },
-  { id: 'tts_transcript', panel: 'tts_transcript', title: 'tts', x: 20, y: 660, w: 220, h: 70, z: 1, kind: 'normal', opts: { text_color: '#d8dee2', bg_color: '', font_size: 13, font_family: 'monospace' } },
-  { id: 'ad_warning',  panel: 'ad_warning',  title: 'ad break',    x: 530,  y: 40,  w: 420, h: 100, z: 700, kind: 'popup', visible: false, opts: { text_color: '#ffb238', bg_color: '#1a1409', font_size: 16 } },
-  { id: 'canvas',      panel: 'canvas',      title: 'canvas',      x: 520,  y: 260, w: 400, h: 400, z: 600, kind: 'popup', visible: false, opts: { size: 100, bg_color: '#0a0c0d' } },
-];
 
 let selectedWinId = null;
 let currentOverlay = 'main';
@@ -1104,6 +1027,8 @@ function refreshWinEditor() {
   $('ed-border-mode').value = wo.border_mode || 'default';
   $('ed-border-color').value = wo.border_color || '#ffffff';
   $('ed-border-color2').value = wo.border_color2 || '#7ef7c6';
+  $('ed-title-color-on').checked = !!wo.title_color;
+  $('ed-title-color').value = wo.title_color || '#0a0d0a';
   $('ed-spacer-pixel-row').style.display = isSpacer ? '' : 'none';
   $('ed-spacer-pixel').value = wo.spacer_pixel || 2;
   $('ed-notepad-row').style.display = win.panel === 'notepad' ? '' : 'none';
@@ -1173,6 +1098,8 @@ $('btn-apply-edit').onclick = () => {
   if (win.panel === 'spacer') opts.spacer_pixel = parseInt($('ed-spacer-pixel').value, 10) || 2;
   if (win.panel === 'notepad') opts.notepad_markdown = $('ed-notepad-md').checked;
   if (win.panel === 'latest') opts.latest_show = $('ed-latest-show').value;
+  if ($('ed-title-color-on').checked) opts.title_color = $('ed-title-color').value;
+  else delete opts.title_color;
   patch.opts = opts;
   wm.updateWindow(selectedWinId, patch);
   refreshWinList();
@@ -1189,7 +1116,7 @@ const PANEL_TITLES = {
   now_playing: 'now playing', lyrics: 'lyrics', status: 'pc status', socials: 'socials',
   message_bar: 'message bar', screen: 'screen', chat: 'chat', extra: 'extra',
   key_panel: 'key panel', spacer: 'log', pngtuber: 'pngtuber', alerts: 'alert', redeem_player: 'redeem',
-  words: 'words', tts_transcript: 'tts', ad_warning: 'ad break', canvas: 'canvas', notepad: 'notes', latest: 'latest',
+  words: 'words', tts_transcript: 'tts', ad_warning: 'ad break', canvas: 'canvas', notepad: 'notes', latest: 'latest', status_text: 'status',
 };
 
 $('btn-add-window').onclick = () => {
@@ -1341,7 +1268,7 @@ function handleMessage(msg) {
       state.latest = msg.latest;
       broadcastToAllPanels('latest', msg.latest);
       break;
-    case 'status': state.status = msg.value; renderStatus(); break;
+    case 'status': state.status = msg.value; renderStatus(); broadcastToAllPanels('status', { value: msg.value }); break;
     case 'scene': state.scene = msg.value; break;
     case 'message': state.message = msg.value; broadcastToAllPanels('message', { value: msg.value }); break;
     case 'stats': state.stats = msg; renderStats(); break;
@@ -1390,6 +1317,7 @@ function renderAll() {
   if (state.message !== undefined) broadcastToAllPanels('message', { value: state.message });
   Object.entries(state.notepads || {}).forEach(([id, value]) => broadcastToAllPanels('notepad', { id, value }));
   if (state.latest) broadcastToAllPanels('latest', state.latest);
+  if (state.status !== undefined) broadcastToAllPanels('status', { value: state.status });
 }
 
 function pctClass(pct) { if (pct >= 85) return 'crit'; if (pct >= 65) return 'warn'; return ''; }

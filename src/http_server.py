@@ -20,167 +20,8 @@ from config import (
     CANVAS_PUBLIC_PORT, CANVAS_PUBLIC_BASE_URL, CANVAS_PUBLIC_COOKIE,
     CANVAS_PUBLIC_REDIRECT_URI, CANVAS_PUBLIC_TWITCH_SCOPE,
 )
-from canvas import place_public_pixel
+from canvas import place_public_pixel, get_credits, is_unlimited
 from state import state
-
-_REDEEM_PLAYER_HTML = """<!doctype html>
-<html>
-<head>
-<meta charset="utf-8">
-<title>redeem player</title>
-<style>
-  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; width: 100vw; height: 100vh; }
-  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
-  video, audio { max-width: 100vw; max-height: 100vh; display: none; }
-  video.active { display: block; }
-</style>
-</head>
-<body>
-<div id="stage">
-  <video id="player" playsinline></video>
-  <audio id="mainAudio"></audio>
-  <audio id="scoreAudio"></audio>
-</div>
-<script>
-
-const WS_URL = "ws://localhost:8877";
-const video      = document.getElementById("player");
-const mainAudio  = document.getElementById("mainAudio");  
-const scoreAudio = document.getElementById("scoreAudio"); 
-
-let queue = [];
-let playing = false;
-let watchdogs = [];
-
-function isVideoFile(name) {
-  return /\\.(mp4|webm|mov)$/i.test(name);
-}
-
-function clearWatchdogs() {
-  for (const w of watchdogs) clearTimeout(w);
-  watchdogs = [];
-}
-
-function armWatchdog(el, onDone) {
- 
- 
- 
-  const guessMs = (isFinite(el.duration) && el.duration > 0)
-    ? (el.duration * 1000) + 3000
-    : 60000;
-  watchdogs.push(setTimeout(onDone, guessMs));
-}
-
-function playEl(el, url) {
-  return new Promise((resolve) => {
-    el.muted = false;
-    el.src = url;
-    el.currentTime = 0;
-    el.play().then(resolve).catch(() => {
-      console.warn("unmuted play blocked, retrying muted:", url);
-      el.muted = true;
-      el.play().then(resolve).catch((err) => {
-        console.error("play failed even muted, skipping:", url, err);
-        resolve();
-      });
-    });
-  });
-}
-
-let activeCount = 0;
-
-function trackElement(el) {
-  activeCount++;
-  const done = () => {
-    el.removeEventListener("ended", done);
-    el.removeEventListener("error", done);
-    activeCount = Math.max(0, activeCount - 1);
-    if (activeCount === 0) finishItem();
-  };
-  el.addEventListener("ended", done);
-  el.addEventListener("error", done);
-  armWatchdog(el, done);
-}
-
-function playNext() {
-  if (playing || queue.length === 0) return;
-  playing = true;
-  activeCount = 0;
-  clearWatchdogs();
-  const item = queue.shift();
-  const mainUrl = "/media/" + encodeURIComponent(item.file);
-  const mainIsVideo = isVideoFile(item.file);
-
-  const mainEl = mainIsVideo ? video : mainAudio;
-  if (mainIsVideo) {
-    mainAudio.pause();
-    video.classList.add("active");
-  } else {
-    video.pause();
-    video.classList.remove("active");
-  }
-
-  playEl(mainEl, mainUrl).then(() => trackElement(mainEl));
-
-  if (item.audio) {
-    const scoreUrl = "/media/" + encodeURIComponent(item.audio);
-    playEl(scoreAudio, scoreUrl).then(() => trackElement(scoreAudio));
-  }
-}
-
-function finishItem() {
-  clearWatchdogs();
-  video.classList.remove("active");
-  video.pause();
-  mainAudio.pause();
-  scoreAudio.pause();
-  video.removeAttribute("src");
-  mainAudio.removeAttribute("src");
-  scoreAudio.removeAttribute("src");
-  video.load();
-  mainAudio.load();
-  scoreAudio.load();
-  playing = false;
-  playNext();
-}
-
-function connect() {
-  const ws = new WebSocket(WS_URL);
-  ws.onmessage = (evt) => {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch { return; }
-    if (msg.type === "play_media" && msg.file) {
-      queue.push(msg);
-      playNext();
-    }
-  };
-  ws.onclose = () => setTimeout(connect, 2000);
-  ws.onerror = () => ws.close();
-}
-connect();
-</script>
-</body>
-</html>
-"""
-
-
-def _ensure_redeem_player_html() -> None:
-    """writes redeem-player.html into the primary overlay dir, so
-    /redeem-player works out of the box as an OBS browser source without
-    you having to hand-author it. always overwrites — if you've customized
-    the file yourself, rename it (e.g. redeem-player.custom.html) and point
-    OBS at that instead, otherwise your edits get clobbered on every
-    restart."""
-    try:
-        target_dir = OVERLAY_SEARCH_DIRS[0] if OVERLAY_SEARCH_DIRS else OVERLAY_DIR
-        target_dir.mkdir(parents=True, exist_ok=True)
-        path = target_dir / "redeem-player.html"
-        if not path.exists():
-            path.write_text(_REDEEM_PLAYER_HTML, encoding="utf-8")
-            log.info("[redeems] wrote redeem-player.html to %s", path)
-    except Exception as e:
-        log.warning("[redeems] could not write redeem-player.html: %s", e)
-
 
 def _resolve_overlay_file(filename: str) -> pathlib.Path | None:
     """searches OVERLAY_SEARCH_DIRS in priority order (repo-local `./overlay`
@@ -254,63 +95,6 @@ class OverlayStaticHandler(tornado.web.RequestHandler):
             self.set_status(404)
 
 
-class WOSLoginHandler(tornado.web.RequestHandler):
-    """top-level sign-in helper for WOS: OBS Browser Source cannot complete
-    NextAuth flows because the browser rejects the required cookies in a
-    cross-site iframe. this page tells the user to open it in a normal
-    browser tab, where the auth cookies can be stored correctly."""
-
-    def get(self) -> None:
-        self.set_header("Content-Type", "text/html; charset=utf-8")
-        self.write("""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>WOS login</title>
-  <style>
-    :root { color-scheme: dark; }
-    body {
-      margin: 0; min-height: 100vh; display: grid; place-items: center;
-      background: #0a0c0d; color: #e8edf1; font-family: ui-monospace, monospace;
-    }
-    .card {
-      width: min(620px, calc(100vw - 32px)); padding: 28px; border: 1px solid #d7c385; border-radius: 12px;
-      background: rgba(20,24,28,0.96); box-shadow: 0 8px 30px rgba(0,0,0,0.35);
-    }
-    h1 { margin: 0 0 12px; font-size: 1.4rem; }
-    p { line-height: 1.7; color: #cfdae2; }
-    .btn {
-      display: inline-block; margin-top: 10px; padding: 10px 16px; border-radius: 8px;
-      background: #d7c385; color: #0a0c0d; text-decoration: none; font-weight: 700;
-    }
-    .warn { color: #ffcf70; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Words on Stream login</h1>
-    <p>
-      Open this in a regular browser tab, not inside OBS. WOS uses NextAuth cookies,
-      and OBS Browser Source blocks them when the site is embedded in an iframe.
-    </p>
-    <p class="warn">
-      Sign in here once, then reload the OBS Browser Source for the WOS panel.
-      The session will stay in the browser profile that completed the login.
-    </p>
-    <a class="btn" href="https://wos.gg/api/auth/signin/twitch" target="_blank" rel="noopener noreferrer">
-      open WOS sign-in in browser
-    </a>
-    <p>
-      If the page is already open in a browser, you can also go directly to
-      <a href="https://wos.gg/" target="_blank" rel="noopener noreferrer">https://wos.gg/</a>
-      and log in there.
-    </p>
-  </div>
-</body>
-</html>""")
-
-
 class PngtuberAssetsHandler(tornado.web.RequestHandler):
     """lists available images per pngtuber state, so the overlay/control
     page can pick one (randomly, for idle variety) without needing a
@@ -360,17 +144,6 @@ class CommandsHandler(tornado.web.RequestHandler):
     def get(self) -> None:
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps(state.data))
-
-
-class CanvasPublicPageHandler(tornado.web.RequestHandler):
-    def get(self) -> None:
-        path = _resolve_overlay_file("canvas-public.html")
-        if path is None:
-            self.set_status(404)
-            self.write("canvas-public.html not found in overlay dirs")
-            return
-        self.set_header("Content-Type", "text/html; charset=utf-8")
-        self.write(path.read_text(encoding="utf-8"))
 
 
 class CanvasPublicLoginHandler(tornado.web.RequestHandler):
@@ -459,7 +232,11 @@ class CanvasPublicSessionHandler(tornado.web.RequestHandler):
             self.write(json.dumps({"logged_in": False, "error": "not logged in"}))
             return
         self.set_header("Content-Type", "application/json")
-        self.write(json.dumps({"logged_in": True, "username": session["username"]}))
+        name = session["username"]
+        self.write(json.dumps({
+            "logged_in": True, "username": name,
+            "credits": get_credits(name), "unlimited": is_unlimited(name),
+        }))
 
 
 class CanvasPublicStateHandler(tornado.web.RequestHandler):
@@ -706,7 +483,6 @@ class PngtuberUploadHandler(tornado.web.RequestHandler):
 
 
 def start_http_server() -> None:
-    _ensure_redeem_player_html()
     app = tornado.web.Application([
         (r"/pngtuber", OverlayHandler, {"filename": "pngtuber.html"}),
         (r"/pngtuber-assets/(.*)", tornado.web.StaticFileHandler, {"path": str(PNGTUBER_DIR)}),
@@ -724,7 +500,7 @@ def start_http_server() -> None:
         (r"/media-list", MediaListHandler),
         (r"/mv-cache/(.*)", tornado.web.StaticFileHandler, {"path": str(MV_CACHE_DIR)}),
         (r"/tts-voices", TTSVoicesHandler),
-        (r"/wos-login", WOSLoginHandler),
+        (r"/wos-login", OverlayHandler, {"filename": "wos-login.html"}),
         (r"/state", CommandsHandler),
         (r"/layouts-list", LayoutsListHandler),
         (r"/layout-save", LayoutSaveHandler),
@@ -744,8 +520,8 @@ def start_http_server() -> None:
         (r"/canvas/state", CanvasPublicStateHandler),
         (r"/canvas/place", CanvasPublicPlaceHandler),
         (r"/canvas/logout", CanvasPublicLogoutHandler),
-        (r"/canvas/?", CanvasPublicPageHandler),
-        (r"/", CanvasPublicPageHandler),
+        (r"/canvas/?", OverlayHandler, {"filename": "canvas-public.html"}),
+        (r"/", OverlayHandler, {"filename": "canvas-public.html"}),
     ])
     public_app.listen(CANVAS_PUBLIC_PORT)
 

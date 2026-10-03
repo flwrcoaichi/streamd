@@ -281,32 +281,34 @@ const Panels = (() => {
   };
 
  
-  const message_bar = {
-    mount(body, win) {
-      body.classList.add('wm-term');
-      body.style.display = 'flex';
-      body.style.alignItems = 'center';
-      body.style.justifyContent = 'center';
-      body.style.overflow = 'auto';
-      body.style.whiteSpace = 'normal';
-      body.style.wordBreak = 'break-word';
-      applyTextOpts(body, win && win.opts);
-      const line = $create('div', 'message-bar-line');
-      line.style.fontWeight = '700';
-      line.style.whiteSpace = 'normal';
-      line.style.wordBreak = 'break-word';
-      line.style.textOverflow = 'clip';
-      line.style.overflow = 'visible';
-      line.style.width = '100%';
-      body.appendChild(line);
-      return { body, line };
-    },
-    onState(h, key, msg) {
-      if (key !== 'message') return;
-      h.line.innerHTML = msg && msg.value ? rich(msg.value) : '';
-    },
-    applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
-  };
+  // message_bar and status_text are the same panel listening to different keys
+  const textCache = {};
+  function textLinePanel(key) {
+    return {
+      mount(body, win) {
+        body.classList.add('wm-term');
+        body.style.display = 'flex';
+        body.style.alignItems = 'center';
+        body.style.justifyContent = 'center';
+        body.style.overflow = 'auto';
+        body.style.whiteSpace = 'normal';
+        body.style.wordBreak = 'break-word';
+        applyTextOpts(body, win && win.opts);
+        const line = $create('div', 'message-bar-line');
+        line.style.cssText = 'font-weight:700;white-space:normal;word-break:break-word;text-overflow:clip;overflow:visible;width:100%';
+        if (textCache[key]) line.innerHTML = rich(textCache[key]);
+        body.appendChild(line);
+        return { body, line };
+      },
+      onState(h, k, msg) {
+        if (k !== key) return;
+        h.line.innerHTML = msg && msg.value ? rich(msg.value) : '';
+      },
+      applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
+    };
+  }
+  const message_bar = textLinePanel('message');
+  const status_text = textLinePanel('status');
 
  
   const screen = {
@@ -1016,6 +1018,7 @@ const Panels = (() => {
 
   function _hexToRgb(hex) {
     let h = (hex || '').replace('#', '').trim();
+    if (h.length === 8) h = h.slice(0, 6);
     if (h.length === 3) h = h.split('').map(c => c + c).join('');
     const n = parseInt(h, 16);
     if (isNaN(n) || h.length !== 6) return { r: 0, g: 255, b: 102 };
@@ -1957,6 +1960,7 @@ const Panels = (() => {
   function cacheMsg(key, msg) {
     if (key === 'notepad' && msg) notepadCache.set(msg.id, msg.value || '');
     else if (key === 'latest') latestCache = msg || { follower: '', sub: '' };
+    else if (key === 'message' || key === 'status') textCache[key] = (msg && msg.value) || '';
   }
 
   let fxStyled = false;
@@ -2069,6 +2073,6 @@ const Panels = (() => {
   return {
     now_playing, lyrics, status, socials, message_bar, screen, chat, extra, spacer,
     key_panel, alerts, redeem_player, pngtuber, words, tts_transcript, ad_warning, canvas,
-    notepad, latest, cacheMsg, escapeHtml,
+    notepad, latest, status_text, cacheMsg, escapeHtml, SPACER_COLOR_DEFAULTS,
   };
 })();

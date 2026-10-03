@@ -177,6 +177,7 @@ function createWM(opts) {
   function hexRgb(h) {
     h = (h || '').replace('#', '');
     if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    if (h.length === 8) h = h.slice(0, 6);
     const n = parseInt(h, 16);
     return isNaN(n) || h.length !== 6 ? [255, 255, 255] : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
   }
@@ -212,6 +213,7 @@ function createWM(opts) {
     ctx.clearRect(0, 0, cols, rows);
     const a = hexRgb(o.border_color || '#ffffff'), b = hexRgb(o.border_color2 || '#7ef7c6');
     const n = 2 * (cols + rows) - 4, steps = 6, shift = (ts / 1000) * (Number(o.border_speed) || 0.15);
+    rec.header.style.backgroundPosition = (-(shift % 1) * win.w * 2) + 'px 0';
     let i = 0;
     const put = (x, y) => {
       let t = ((i / n) + shift) % 1;
@@ -230,10 +232,16 @@ function createWM(opts) {
   function applyBorder(win, rec) {
     const o = win.opts || {};
     const col = o.border_color || '';
+    const col2 = o.border_color2 || '#7ef7c6';
     const pixel = o.border_mode === 'pixel' && col;
     rec.root.style.borderColor = pixel ? 'transparent' : col;
-    rec.header.style.background = col;
-    if (col) {
+    // titlebar follows the border: solid color, or an animated gradient in pixel mode
+    rec.header.style.background = pixel
+      ? `linear-gradient(90deg, ${col}, ${col2}, ${col}) 0 0 / 200% 100% repeat-x`
+      : col;
+    if (o.title_color) {
+      rec.header.style.color = o.title_color;
+    } else if (col) {
       const [r, g, b] = hexRgb(col);
       rec.header.style.color = (r * 299 + g * 587 + b * 114) / 1000 > 140 ? '#0a0d0a' : '#ffffff';
     } else rec.header.style.color = '';

@@ -20,21 +20,23 @@ body{display:grid;place-items:center}
 #ghost.on{opacity:.75}
 #carry{position:fixed;left:0;top:0;width:14px;height:14px;border:1px solid #fff;pointer-events:none;opacity:0;z-index:9;box-shadow:0 4px 10px rgba(0,0,0,.6);transition:opacity .15s,transform .06s ease-out}
 #carry.on{opacity:1}
+#credits{font-size:13px;border:1px solid var(--ink);padding:6px 10px;display:none}
 .pop{position:absolute;pointer-events:none;border:2px solid currentColor;animation:pop .45s ease-out forwards}
 @keyframes pop{to{transform:scale(5);opacity:0}}
 </style>
 </head>
 <body>
-<div id="bar"><input id="color" type="color" value="#ff7a18" aria-label="color"><button id="auth" type="button">sign in with twitch</button></div>
+<div id="bar"><span id="credits" title="pixels you can place"></span><input id="color" type="color" value="#ff7a18" aria-label="color"><button id="auth" type="button">sign in with twitch</button></div>
 <div id="wrap"><canvas id="c"></canvas><div id="ghost"></div></div>
 <div id="carry"></div>
 <script>
 const $=id=>document.getElementById(id),c=$('c'),x=c.getContext('2d'),wrap=$('wrap'),ghost=$('ghost'),carry=$('carry'),color=$('color'),auth=$('auth');
-let size=100,pixels={},user=null;
+let size=100,pixels={},user=null,credits=0;
 const api=async(u,o)=>{const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'failed');return d};
 function draw(){c.width=c.height=size;x.fillStyle='#11161d';x.fillRect(0,0,size,size);for(const k in pixels){const[a,b]=k.split(',');x.fillStyle=pixels[k];x.fillRect(+a,+b,1,1)}}
 async function board(){try{const d=await api('/canvas/state');size=d.size||100;pixels=d.pixels||{};draw();ghost.style.width=ghost.style.height=100/size+'%'}catch(e){}}
-async function session(){try{user=(await api('/canvas/session')).username||null}catch(e){user=null}auth.textContent=user||'sign in with twitch';auth.title=user?'click to sign out':''}
+function showCredits(){const e=$('credits');e.style.display=user?'':'none';e.textContent=credits===Infinity?'pixels: ∞':'pixels: '+credits}
+async function session(){try{const d=await api('/canvas/session');user=d.username||null;credits=d.unlimited?Infinity:(d.credits||0)}catch(e){user=null;credits=0}auth.textContent=user||'sign in with twitch';auth.title=user?'click to sign out':'';showCredits()}
 auth.onclick=async()=>{if(!user){location.href='/canvas/login';return}await api('/canvas/logout',{method:'POST'}).catch(()=>{});user=null;await session()};
 function paint(){ghost.style.background=color.value;carry.style.background=color.value}
 color.oninput=paint;
@@ -47,12 +49,13 @@ function ring(px,py,col){const d=document.createElement('div');d.className='pop'
 c.addEventListener('click',async e=>{
   const p=at(e);if(!p)return;
   if(!user){auth.animate([{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'none'}],{duration:200,iterations:2});return}
-  const[px,py]=p,col=color.value;
+  if(credits<=0){$('credits').animate([{transform:'translateX(-4px)'},{transform:'translateX(4px)'},{transform:'none'}],{duration:200,iterations:2});return}
+  const[px,py]=p,col=color.value;credits-=1;showCredits();
   pixels[px+','+py]=col;x.fillStyle=col;x.fillRect(px,py,1,1);ring(px,py,col);
   carry.animate([{scale:'1.8'},{scale:'1'}],{duration:180});
-  try{await api('/canvas/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({x:px,y:py,color:col})})}catch(err){board()}
+  try{await api('/canvas/place',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({x:px,y:py,color:col})})}catch(err){board();session()}
 });
-paint();session().then(board);setInterval(board,4000);
+paint();session().then(board);setInterval(()=>{board();session()},4000);
 </script>
 </body>
 </html>
