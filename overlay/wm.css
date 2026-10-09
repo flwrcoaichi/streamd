@@ -44,6 +44,13 @@
 }
 
 .wm-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-color-gradient-text {
+  color: transparent !important;
+  background-image: var(--wm-text-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
 .wm-close { cursor: pointer; padding: 0 4px; flex: none; }
 .wm-close:hover { opacity: 0.6; }
 

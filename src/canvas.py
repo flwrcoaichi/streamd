@@ -3,8 +3,9 @@ canvas.py - a small collaborative pixel-art board.
 
 Users earn pixel credits (redeems, gifts, subs, cheers) and spend one per
 pixel. Credits live in state.canvas_credits (lowercased username) and are NOT
-persisted across restarts. Users in CANVAS_UNLIMITED_USERS (the broadcaster by
-default) never spend credits.
+persisted across restarts. Board pixels and owners are stored in canvas.json.
+Users in CANVAS_UNLIMITED_USERS (the broadcaster by default) never spend
+credits.
 
 state.data["canvas"] = {size, visible, pixels: {"x,y": "#rrggbb"}, owners: {"x,y": user}}
 """
@@ -18,6 +19,7 @@ from config import log, CANVAS_PATH, CANVAS_SHOW_SECONDS, \
     CANVAS_MIN_INTERVAL_MIN, CANVAS_MAX_INTERVAL_MIN, CANVAS_UNLIMITED_USERS
 from state import state
 from broadcast import broadcast_sync
+from helpers import write_atomic
 
 _HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
@@ -31,8 +33,8 @@ def load_canvas() -> dict:
                 if isinstance(data.get("owners"), dict):
                     state.data["canvas"]["owners"].update(data["owners"])
                 return data["pixels"]
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("[canvas] failed to load: %s", e)
     return {}
 
 
@@ -42,7 +44,7 @@ def save_canvas() -> None:
             "pixels": state.data["canvas"].get("pixels", {}),
             "owners": state.data["canvas"].get("owners", {}),
         }
-        CANVAS_PATH.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        write_atomic(CANVAS_PATH, json.dumps(payload, indent=2))
     except Exception as e:
         log.warning("[canvas] failed to save: %s", e)
 

@@ -13,7 +13,7 @@ const DEFAULT_LAYOUT = [
   { id: 'redeem_player', panel: 'redeem_player', title: 'redeem',  x: 460,  y: 300, w: 520, h: 440, z: 500, kind: 'popup', visible: false },
   { id: 'pngtuber',    panel: 'pngtuber',    title: 'pngtuber',    x: 900,  y: 500, w: 400, h: 580, z: 999999, kind: 'topmost' },
   { id: 'words',       panel: 'words',       title: 'words',       x: 300,  y: 200, w: 600, h: 500, z: 800, kind: 'normal', opts: { wos_url: 'https://wos.gg/' } },
-  { id: 'tts_transcript', panel: 'tts_transcript', title: 'tts', x: 20, y: 660, w: 220, h: 70, z: 1, kind: 'normal', opts: { text_color: '#d8dee2', bg_color: '', font_size: 13, font_family: 'monospace' } },
+  { id: 'tts_transcript', panel: 'tts_transcript', title: 'tts', x: 20, y: 660, w: 460, h: 110, z: 1, kind: 'normal', opts: { text_color: '#d8dee2', bg_color: '', font_size: 13, font_family: 'monospace' } },
   { id: 'ad_warning',  panel: 'ad_warning',  title: 'ad break',    x: 530,  y: 40,  w: 420, h: 100, z: 700, kind: 'popup', visible: false, opts: { text_color: '#ffb238', bg_color: '#1a1409', font_size: 16 } },
   { id: 'canvas',      panel: 'canvas',      title: 'canvas',      x: 520,  y: 260, w: 400, h: 400, z: 600, kind: 'popup', visible: false, opts: { size: 100, bg_color: '#0a0c0d' } },
 ];

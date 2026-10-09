@@ -1,2 +1,4 @@
 t.py
 __pycache__/
+tts/
+vendor/

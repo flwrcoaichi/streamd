@@ -13,7 +13,9 @@ from obs import obs_dispatch, obs_set_words_visibility
 from commands import save_commands, handle_lyrics_command
 from redeems import save_rewards, handle_redemption
 from tts import (
-    tts_say, tts_skip, tts_clear_queue, tts_set_enabled, _tts_list_voices,
+    tts_say, tts_skip, tts_clear_queue, tts_set_enabled, tts_set_engine,
+    tts_set_output_device, tts_save_reference_text, _tts_load_reference_texts,
+    _tts_voices_for_engine,
 )
 from twitch_api import (
     resolve_twitch_user_id, snooze_next_ad, set_channel_title, set_channel_category,
@@ -106,6 +108,21 @@ def normalize_key_panel_config(cfg: object) -> dict:
     if not isinstance(cfg, dict):
         cfg = {}
     out = {**base, **cfg}
+    def _color_stops(value):
+        if not isinstance(value, list):
+            return []
+        return [
+            color for color in (str(entry).strip() for entry in value)
+            if re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", color)
+        ][:5]
+
+    for option in ("active_color_stops", "inactive_color_stops", "border_color_stops"):
+        if option in out:
+            stops = _color_stops(out[option])
+            if len(stops) >= 2:
+                out[option] = stops
+            else:
+                out.pop(option)
     out["glow"] = bool(out.get("glow", True))
     out["border"] = bool(out.get("border", False))
     out["border_width"] = max(0, int(float(str(out.get("border_width", 1)).strip())) if str(out.get("border_width", 1)).strip() not in ("", "None", "null") else 1)
@@ -187,6 +204,9 @@ def normalize_key_panel_config(cfg: object) -> dict:
             "bg_color": item.get("bg_color") or item.get("background") or out.get("inactive_color") or "#1f2731",
             "active": bool(item.get("active", False)),
         }
+        color_stops = _color_stops(item.get("color_stops"))
+        if len(color_stops) >= 2:
+            out_key["color_stops"] = color_stops
         if x_val is not None:
             out_key["x"] = x_val
         if y_val is not None:
@@ -362,15 +382,43 @@ async def ws_handler(ws) -> None:
                     await broadcast({"type": "extra", "value": val})
 
                 elif cmd == "tts_say":
-                    tts_say(msg.get("value", ""), msg.get("voice"))
+                    tts_say(
+                        msg.get("value", ""),
+                        msg.get("voice"),
+                        msg.get("reference_text"),
+                    )
                 elif cmd == "tts_skip":
                     tts_skip()
                 elif cmd == "tts_clear":
                     tts_clear_queue()
                 elif cmd == "tts_toggle":
                     tts_set_enabled(not state.tts_state()["enabled"])
+                elif cmd == "tts_set_engine":
+                    tts_set_engine(val)
+                elif cmd == "tts_set_output_device":
+                    tts_set_output_device(val)
+                elif cmd == "tts_save_reference_text":
+                    try:
+                        text_path = tts_save_reference_text(
+                            msg.get("voice"), msg.get("reference_text")
+                        )
+                        await ws.send(json.dumps({
+                            "type": "tts_reference_text_saved",
+                            "voice": str(msg.get("voice", "")).strip().lower(),
+                            "path": text_path,
+                        }))
+                    except Exception as exc:
+                        state.tts_state()["reference_text_error"] = str(exc)
+                        log.error("[tts] could not save reference transcript: %s", exc)
+                        await ws.send(json.dumps({
+                            "type": "tts_reference_text_error",
+                            "error": str(exc),
+                        }))
                 elif cmd == "tts_list_voices":
-                    state.tts_state()["voices"] = sorted(_tts_list_voices().keys())
+                    state.tts_state()["voices"] = _tts_voices_for_engine(
+                        state.tts_state().get("engine", "chatterbox")
+                    )
+                    state.tts_state()["reference_texts"] = _tts_load_reference_texts()
                     await broadcast({"type": "tts_state", "tts": state.tts_state()})
 
                 elif cmd == "ads_toggle":
@@ -582,6 +630,7 @@ async def ws_handler(ws) -> None:
 
                 elif cmd == "canvas_clear":
                     state.data["canvas"]["pixels"] = {}
+                    state.data["canvas"]["owners"] = {}
                     from canvas import save_canvas
                     save_canvas()
                     await broadcast({"type": "canvas_state", "canvas": state.data["canvas"]})

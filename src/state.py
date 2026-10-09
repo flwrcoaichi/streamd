@@ -1,9 +1,12 @@
 import asyncio
+import queue
 import threading
 from collections import deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from config import TTS_ENABLED_DEFAULT, AD_REMINDER_ENABLED, CANVAS_SIZE
+from config import (
+    TTS_ENABLED_DEFAULT, TTS_ENGINE_DEFAULT, AD_REMINDER_ENABLED, CANVAS_SIZE,
+)
 
 if TYPE_CHECKING:
     from obs import OBSClient
@@ -40,14 +43,31 @@ class StreamState:
             },
             "tts": {
                 "enabled": TTS_ENABLED_DEFAULT,
+                "engine": TTS_ENGINE_DEFAULT,
+                "pending_engine": None,
+                "engine_name": "",
+                "engines": [],
                 "loading": True,
                 "ready": False,
+                "error": "",
                 "generating": False,
+                "generation_step": 0,
+                "generation_max_steps": 0,
+                "generation_elapsed": 0.0,
+                "generation_tokens_per_second": 0.0,
                 "speaking": False,
                 "queue_len": 0,
                 "current": "",
                 "voice": "default",
                 "voices": [],
+                "reference_texts": {},
+                "reference_text_saved": "",
+                "reference_text_error": "",
+                "output_device": None,
+                "output_device_name": "System default",
+                "output_devices": [],
+                "output_device_override": False,
+                "output_error": "",
             },
             "twitch": {
                 "connected": False,
@@ -139,9 +159,13 @@ class StreamState:
         self.base_stream_title: str | None = None
 
         
-        self.tts_queue = None
-        self.tts_sessions = None
-        self.tts_tokenizer = None
+        self.tts_queue: queue.Queue[
+            tuple[str | None, str | None, str | None]
+        ] | None = None
+        self.tts_sessions: dict[str, Any] | None = None
+        self.tts_tokenizer: Any | None = None
+        self.tts_kokoro: Any | None = None
+        self.tts_f5_worker: Any | None = None
         self.tts_lock = threading.Lock()
         self.tts_popup_open = threading.Lock()
 

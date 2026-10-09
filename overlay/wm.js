@@ -93,7 +93,7 @@ function createWM(opts) {
           applyGeometry(existing, rec);
           const title = rec.header.querySelector('.wm-title');
           if (title) title.textContent = existing.title;
-          if (opts.onWindowOptsChanged) opts.onWindowOptsChanged(existing, rec);
+          applyWindowOpts(existing, rec);
         }
       }
     }
@@ -140,7 +140,7 @@ function createWM(opts) {
     const rec = els.get(id);
     if (rec) {
       applyGeometry(win, rec);
-      if (opts.onWindowOptsChanged) opts.onWindowOptsChanged(win, rec);
+      applyWindowOpts(win, rec);
     }
     if (!(opts2 && opts2.silent)) emitLayoutChange();
   }
@@ -164,6 +164,7 @@ function createWM(opts) {
   function destroyWindowEl(id) {
     const rec = els.get(id);
     if (rec) {
+      if (rec.gradientObserver) rec.gradientObserver.disconnect();
       const win = windows.get(id);
       const renderer = win ? opts.getRenderer && opts.getRenderer(win.panel) : null;
       if (renderer && renderer.unmount && rec.handle) {
@@ -180,6 +181,13 @@ function createWM(opts) {
     if (h.length === 8) h = h.slice(0, 6);
     const n = parseInt(h, 16);
     return isNaN(n) || h.length !== 6 ? [255, 255, 255] : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+
+  function hexRgba(h) {
+    const rgb = hexRgb(h);
+    const hex = (h || '').replace('#', '');
+    const alpha = hex.length === 8 ? parseInt(hex.slice(6), 16) / 255 : 1;
+    return [...rgb, Number.isFinite(alpha) ? alpha : 1];
   }
 
   let bRaf = null, bLast = 0;
@@ -211,7 +219,9 @@ function createWM(opts) {
     cv.style.height = win.h + 'px';
     const ctx = cv.getContext('2d');
     ctx.clearRect(0, 0, cols, rows);
-    const a = hexRgb(o.border_color || '#ffffff'), b = hexRgb(o.border_color2 || '#7ef7c6');
+    const stops = (Array.isArray(o.border_stops) && o.border_stops.length >= 2
+      ? o.border_stops
+      : [o.border_color || '#ffffff', o.border_color2 || '#7ef7c6']).map(hexRgba);
     const n = 2 * (cols + rows) - 4, steps = 6, shift = (ts / 1000) * (Number(o.border_speed) || 0.15);
     rec.header.style.backgroundPosition = (-(shift % 1) * win.w * 2) + 'px 0';
     let i = 0;
@@ -219,7 +229,11 @@ function createWM(opts) {
       let t = ((i / n) + shift) % 1;
       t = t < 0.5 ? t * 2 : (1 - t) * 2;
       t = Math.round(t * steps) / steps;
-      ctx.fillStyle = `rgb(${a.map((v, k) => Math.round(v + (b[k] - v) * t)).join(',')})`;
+      const stopPosition = t * (stops.length - 1);
+      const stopIndex = Math.min(stops.length - 2, Math.floor(stopPosition));
+      const stopProgress = stopPosition - stopIndex;
+      const color = stops[stopIndex].map((v, k) => v + (stops[stopIndex + 1][k] - v) * stopProgress);
+      ctx.fillStyle = `rgba(${Math.round(color[0])},${Math.round(color[1])},${Math.round(color[2])},${color[3]})`;
       ctx.fillRect(x, y, 1, 1);
       i++;
     };
@@ -233,11 +247,15 @@ function createWM(opts) {
     const o = win.opts || {};
     const col = o.border_color || '';
     const col2 = o.border_color2 || '#7ef7c6';
+    const stops = Array.isArray(o.border_stops) && o.border_stops.length >= 2
+      ? o.border_stops
+      : [col || '#ffffff', col2];
+    const animatedStops = [...stops, ...stops.slice(0, -1).reverse()];
     const pixel = o.border_mode === 'pixel' && col;
     rec.root.style.borderColor = pixel ? 'transparent' : col;
     // titlebar follows the border: solid color, or an animated gradient in pixel mode
     rec.header.style.background = pixel
-      ? `linear-gradient(90deg, ${col}, ${col2}, ${col}) 0 0 / 200% 100% repeat-x`
+      ? `linear-gradient(90deg, ${animatedStops.join(', ')}) 0 0 / 200% 100% repeat-x`
       : col;
     if (o.title_color) {
       rec.header.style.color = o.title_color;
@@ -245,6 +263,15 @@ function createWM(opts) {
       const [r, g, b] = hexRgb(col);
       rec.header.style.color = (r * 299 + g * 587 + b * 114) / 1000 > 140 ? '#0a0d0a' : '#ffffff';
     } else rec.header.style.color = '';
+    const titleStops = Array.isArray(o.title_color_stops) ? o.title_color_stops : [];
+    const title = rec.header.querySelector('.wm-title');
+    if (title) {
+      title.style.backgroundImage = titleStops.length >= 2 ? `linear-gradient(90deg, ${titleStops.join(', ')})` : '';
+      title.style.backgroundClip = titleStops.length >= 2 ? 'text' : '';
+      title.style.webkitBackgroundClip = titleStops.length >= 2 ? 'text' : '';
+      title.style.webkitTextFillColor = titleStops.length >= 2 ? 'transparent' : '';
+      title.style.color = titleStops.length >= 2 ? 'transparent' : '';
+    }
     if (pixel) {
       if (!rec.bcanvas) {
         const cv = document.createElement('canvas');
@@ -268,6 +295,56 @@ function createWM(opts) {
     const shouldHideWindowInOverlay = !win.visible && !editable;
     rec.root.style.display = shouldHideWindowInOverlay ? 'none' : '';
     applyBorder(win, rec);
+  }
+
+  function applyTextGradient(body, rec, stops) {
+    const gradient = stops.length >= 2 ? `linear-gradient(90deg, ${stops.join(', ')})` : '';
+    if (gradient) {
+      const wrapTextNodes = (root) => {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (!node.nodeValue.trim() || node.parentElement.closest('.wm-color-gradient-text')) continue;
+          nodes.push(node);
+        }
+        nodes.forEach(node => {
+          const span = document.createElement('span');
+          span.className = 'wm-color-gradient-text';
+          span.style.setProperty('--wm-text-gradient', gradient);
+          node.parentNode.replaceChild(span, node);
+          span.appendChild(node);
+        });
+      };
+      wrapTextNodes(body);
+      body.querySelectorAll('.wm-color-gradient-text').forEach(span => span.style.setProperty('--wm-text-gradient', gradient));
+      if (!rec.gradientObserver) {
+        rec.gradientObserver = new MutationObserver(records => {
+          records.forEach(record => record.addedNodes.forEach(node => {
+            if (node.nodeType === Node.TEXT_NODE) wrapTextNodes(node.parentNode);
+            else if (node.nodeType === Node.ELEMENT_NODE && !node.closest('.wm-color-gradient-text')) wrapTextNodes(node);
+          }));
+        });
+        rec.gradientObserver.observe(body, { childList: true, subtree: true });
+      }
+      return;
+    }
+    if (rec.gradientObserver) {
+      rec.gradientObserver.disconnect();
+      rec.gradientObserver = null;
+    }
+    body.querySelectorAll('.wm-color-gradient-text').forEach(span => span.replaceWith(...span.childNodes));
+  }
+
+  function applyWindowOpts(win, rec) {
+    if (opts.onWindowOptsChanged) opts.onWindowOptsChanged(win, rec);
+    const values = win.opts || {};
+    const bgStops = Array.isArray(values.bg_color_stops) ? values.bg_color_stops : [];
+    rec.body.style.backgroundImage = bgStops.length >= 2 ? `linear-gradient(135deg, ${bgStops.join(', ')})` : '';
+    if (values.bg_color) rec.body.style.backgroundColor = values.bg_color;
+    const textStops = Array.isArray(values.text_color_stops) ? values.text_color_stops : [];
+    applyTextGradient(rec.body, rec, textStops);
+    if (values.text_color) rec.body.style.color = textStops.length >= 2 ? '' : values.text_color;
   }
 
   function renderWindow(win) {
@@ -310,6 +387,7 @@ function createWM(opts) {
     }
 
     rec.handle = renderBody(win, body, rec);
+    applyWindowOpts(win, rec);
     if (win.kind === 'topmost') root.classList.add('wm-topmost');
   }
 

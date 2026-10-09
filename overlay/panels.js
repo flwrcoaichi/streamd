@@ -365,6 +365,9 @@ const Panels = (() => {
       const keyColor = item.color || panel.active_color || '#7ef7c6';
       const inactiveColor = item.bg_color || panel.inactive_color || '#1f2731';
       const textColor = panel.text_color || '#f5f7fa';
+      const activeStops = item.color_stops || panel.active_color_stops;
+      const inactiveStops = panel.inactive_color_stops;
+      const borderStops = item.border_color_stops || panel.border_color_stops;
       const keySize = panel.size || 48;
       const gap = Math.max(2, panel.gap || 8);
       const borderWidth = Number.isFinite(Number(item.border_width ?? panel.border_width)) ? Number(item.border_width ?? panel.border_width) : (panel.border_width || 1);
@@ -381,7 +384,12 @@ const Panels = (() => {
       square.style.height = `${keySize}px`;
       square.style.border = (panel.border === false || item.border === false) ? 'none' : `${Math.max(0, borderWidth)}px solid ${borderColor}`;
       square.style.borderColor = active ? keyColor : borderColor;
-      square.style.background = active ? keyColor : inactiveColor;
+      square.style.borderImage = borderStops && borderStops.length >= 2 && panel.border !== false && item.border !== false
+        ? `linear-gradient(135deg, ${borderStops.join(', ')}) 1`
+        : 'none';
+      square.style.background = active
+        ? (activeStops && activeStops.length >= 2 ? `linear-gradient(135deg, ${activeStops.join(', ')})` : keyColor)
+        : (inactiveStops && inactiveStops.length >= 2 ? `linear-gradient(135deg, ${inactiveStops.join(', ')})` : inactiveColor);
       square.style.color = active ? '#08120d' : textColor;
       square.style.borderRadius = radiusValue;
       square.style.boxShadow = glowEnabled && active ? '0 0 12px color-mix(in srgb, var(--key-color, #7ef7c6) 60%, transparent), inset 0 0 0 1px rgba(0,0,0,0.2)' : 'none';
@@ -486,18 +494,31 @@ const Panels = (() => {
       applyTextOpts(body, win && win.opts);
       const label = $create('div', 'line wm-dim');
       label.textContent = 'tts: idle';
+      const info = $create('div', 'line wm-dim');
+      info.textContent = 'engine: — · voice: default · queue: 0';
       const text = $create('div', 'line');
       text.style.whiteSpace = 'pre-wrap';
       body.appendChild(label);
+      body.appendChild(info);
       body.appendChild(text);
-      return { body, label, text };
+      return { body, label, info, text };
     },
     onState(h, key, msg) {
       if (key !== 'tts_state') return;
       const t = msg || {};
-      if (t.generating) h.label.textContent = 'tts: generating…';
+      if (t.generating) {
+        const steps = t.generation_max_steps
+          ? ` · ${t.generation_step || 0}/${t.generation_max_steps} tokens · ${Number(t.generation_tokens_per_second || 0).toFixed(1)} tok/s`
+          : '';
+        h.label.textContent = `tts: generating ${t.engine_name || t.engine || ''} · ${Number(t.generation_elapsed || 0).toFixed(1)}s${steps}`;
+      }
       else if (t.speaking) h.label.textContent = 'tts: speaking';
+      else if (t.loading) h.label.textContent = `tts: loading ${t.engine_name || t.engine || 'model'}…`;
       else h.label.textContent = 'tts: idle';
+      const lastGeneration = t.generation_elapsed
+        ? ` · last: ${Number(t.generation_elapsed).toFixed(1)}s${t.generation_max_steps ? ` · ${t.generation_step || 0} tokens` : ''}`
+        : '';
+      h.info.textContent = `engine: ${t.engine_name || t.engine || '—'} · voice: ${t.voice || 'default'} · queue: ${t.queue_len || 0} · output: ${t.output_device_name || 'System default'}${lastGeneration}`;
       h.text.textContent = t.current || '';
     },
     applyOpts(h, win) { applyTextOpts(h.body, win.opts); },
@@ -976,6 +997,10 @@ const Panels = (() => {
     floorgrid: '#39ff9e',
     bump: '#8f9dff',
     wireframe: '#5ef2ff',
+    trails: '#ffd166',
+    twister: '#ff61d8',
+    fluid: '#5ec8ff',
+    torus: '#7ef7c6',
   };
 
  
@@ -1031,7 +1056,27 @@ const Panels = (() => {
   }
 
   function _spacerColor(h) {
-    return (h.win && h.win.opts && h.win.opts.spacer_color) || SPACER_COLOR_DEFAULTS[h.kind] || '#00ff66';
+    const opts = (h.win && h.win.opts) || {};
+    const stops = Array.isArray(opts.spacer_color_stops) ? opts.spacer_color_stops : [];
+    return (stops[0] || opts.spacer_color) || SPACER_COLOR_DEFAULTS[h.kind] || '#00ff66';
+  }
+
+  function _spacerGradient(ctx, h, width) {
+    const stops = (h.win && h.win.opts && h.win.opts.spacer_color_stops) || [];
+    if (stops.length < 2) return _spacerColor(h);
+    const gradient = ctx.createLinearGradient(0, 0, width, 0);
+    stops.slice(0, 5).forEach((color, index, colors) => gradient.addColorStop(index / (colors.length - 1), color));
+    return gradient;
+  }
+
+  function _applySpacerTextGradient(h) {
+    const stops = (h.win && h.win.opts && h.win.opts.spacer_color_stops) || [];
+    h.pre.querySelectorAll('.line').forEach(line => {
+      line.style.backgroundImage = stops.length >= 2 ? `linear-gradient(90deg, ${stops.join(', ')})` : '';
+      line.style.backgroundClip = stops.length >= 2 ? 'text' : '';
+      line.style.webkitBackgroundClip = stops.length >= 2 ? 'text' : '';
+      line.style.webkitTextFillColor = stops.length >= 2 ? 'transparent' : '';
+    });
   }
 
   function _rgba(hex, a) {
@@ -1125,6 +1170,7 @@ const Panels = (() => {
           lines.slice(0, n)
             .map(l => `<div class="line">${_escapeSpacerHtml(l)}</div>`)
             .join('') + '<span class="wm-cursor" style="background:' + _spacerColor(h) + ';">&nbsp;</span>';
+        _applySpacerTextGradient(h);
         h.lineIdx = (h.lineIdx + 1) % (lines.length + 3);
         h.timer = setTimeout(tick, h.kind === 'typewriter' ? 450 : 600);
       };
@@ -1218,6 +1264,14 @@ const Panels = (() => {
       modeData.bump = { lightAngle: 0 };
     } else if (h.kind === 'wireframe') {
       modeData.wireframe = { ax: 0, ay: 0, az: 0 };
+    } else if (h.kind === 'trails') {
+      modeData.trails = { particles: [], tick: 0 };
+    } else if (h.kind === 'twister') {
+      modeData.twister = { angle: 0 };
+    } else if (h.kind === 'fluid') {
+      modeData.fluid = { angle: 0 };
+    } else if (h.kind === 'torus') {
+      modeData.torus = { ax: 0, ay: 0, az: 0 };
     }
 
     function frame() {
@@ -1228,12 +1282,13 @@ const Panels = (() => {
       const w = h.canvas.width * P;
       const hg = h.canvas.height * P;
       const color = _spacerColor(h);
+      const colorPaint = _spacerGradient(ctx, h, w);
 
       switch (h.kind) {
         case 'matrix': {
           ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
           ctx.fillRect(0, 0, w, hg);
-          ctx.fillStyle = color;
+          ctx.fillStyle = colorPaint;
           ctx.font = '13px monospace';
           const chars = modeData.matrix.chars;
           if (modeData.matrix.cols.length !== Math.floor(w / 14)) {
@@ -1286,7 +1341,7 @@ const Panels = (() => {
         case 'oscilloscope': {
           ctx.fillStyle = 'rgba(0, 10, 5, 0.2)';
           ctx.fillRect(0, 0, w, hg);
-          ctx.strokeStyle = color;
+          ctx.strokeStyle = colorPaint;
           ctx.lineWidth = 2;
           ctx.beginPath();
           const cy = hg / 2;
@@ -1345,7 +1400,7 @@ const Panels = (() => {
         case 'rain': {
           ctx.fillStyle = 'rgba(3, 5, 8, 0.25)';
           ctx.fillRect(0, 0, w, hg);
-          ctx.strokeStyle = color;
+          ctx.strokeStyle = colorPaint;
           ctx.lineWidth = 1;
           const drops = modeData.rain;
           if (drops.length !== Math.max(1, Math.floor(w / 6))) {
@@ -1452,7 +1507,7 @@ const Panels = (() => {
             }
             L.cells = next;
           }
-          ctx.fillStyle = color;
+          ctx.fillStyle = colorPaint;
           for (let y = 0; y < L.rows; y++) {
             for (let x = 0; x < L.cols; x++) {
               if (L.cells[y * L.cols + x]) ctx.fillRect(x * L.cell, y * L.cell, L.cell - 1, L.cell - 1);
@@ -1788,6 +1843,141 @@ const Panels = (() => {
             ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
             ctx.fill();
           });
+          break;
+        }
+        case 'trails': {
+          const T = modeData.trails;
+          ctx.fillStyle = 'rgba(0,0,0,0.16)';
+          ctx.fillRect(0, 0, w, hg);
+          T.tick++;
+          if (T.particles.length < 32 && T.tick % 3 === 0) {
+            const fromLeft = Math.random() < 0.5;
+            T.particles.push({
+              x: fromLeft ? -P : w + P,
+              y: hg * (0.15 + Math.random() * 0.7),
+              vx: (fromLeft ? 1 : -1) * (1.5 + Math.random() * 2),
+              vy: (Math.random() - 0.5) * 1.5,
+              life: 45 + Math.random() * 35,
+              trail: [],
+            });
+          }
+          T.particles = T.particles.filter(p => {
+            p.x += p.vx;
+            p.y += p.vy;
+            p.life--;
+            p.trail.unshift({ x: p.x, y: p.y });
+            p.trail.length = Math.min(p.trail.length, 12);
+            p.trail.forEach((point, i) => {
+              ctx.globalAlpha = (1 - i / p.trail.length) * Math.min(1, p.life / 12);
+              ctx.fillStyle = colorPaint;
+              ctx.fillRect(point.x, point.y, P * 2, P * 2);
+            });
+            ctx.globalAlpha = 1;
+            return p.life > 0 && p.x > -P * 3 && p.x < w + P * 3 && p.y > -P * 3 && p.y < hg + P * 3;
+          });
+          break;
+        }
+        case 'twister': {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, w, hg);
+          const T = modeData.twister;
+          T.angle += 0.035;
+          const rows = 36, columns = 8;
+          const halfWidth = Math.min(w * 0.34, hg * 0.28);
+          const halfHeight = hg * 0.42;
+          const cx = w / 2, cy = hg / 2, dist = 4;
+          const { r: br, g: bg, b: bb } = _hexToRgb(color);
+          const project = (u, v) => {
+            const y = (u / rows * 2 - 1) * halfHeight;
+            const across = (v / columns * 2 - 1) * halfWidth;
+            const angle = T.angle + u / rows * Math.PI * 4;
+            const x = across * Math.cos(angle);
+            const z = across * Math.sin(angle);
+            const persp = dist / (dist + z / (halfWidth || 1));
+            return { x: cx + x * persp, y: cy + y * persp, z };
+          };
+          for (let row = 0; row < rows; row++) {
+            for (let column = 0; column < columns; column++) {
+              const a = project(row, column), b = project(row + 1, column);
+              const c = project(row + 1, column + 1), d = project(row, column + 1);
+              const z = (a.z + b.z + c.z + d.z) / 4;
+              const shade = Math.max(0.25, Math.min(1.5, 0.65 + z / (halfWidth * 2)));
+              ctx.fillStyle = `rgb(${Math.round(br * shade)},${Math.round(bg * shade)},${Math.round(bb * shade)})`;
+              ctx.beginPath();
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(b.x, b.y);
+              ctx.lineTo(c.x, c.y);
+              ctx.lineTo(d.x, d.y);
+              ctx.closePath();
+              ctx.fill();
+            }
+          }
+          break;
+        }
+        case 'fluid': {
+          const block = 5;
+          const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
+          const F = modeData.fluid;
+          F.angle += 0.035;
+          const { r: br, g: bg, b: bb } = _hexToRgb(color);
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, w, hg);
+          for (let yy = 0; yy < rows; yy++) {
+            for (let xx = 0; xx < cols; xx++) {
+              const x = xx * block, y = yy * block;
+              const u = x + Math.sin(y * 0.035 + F.angle) * 18 + Math.sin((x + y) * 0.018 - F.angle) * 10;
+              const v = y + Math.cos(x * 0.03 - F.angle * 1.2) * 14 + Math.sin((x - y) * 0.02 + F.angle) * 8;
+              const wave = Math.sin(u * 0.035 + Math.sin(v * 0.025 + F.angle) * 2);
+              const shade = 0.18 + (wave + 1) * 0.41;
+              ctx.fillStyle = `rgb(${Math.round(br * shade)},${Math.round(bg * shade)},${Math.round(bb * shade)})`;
+              ctx.fillRect(x, y, block + 1, block + 1);
+            }
+          }
+          break;
+        }
+        case 'torus': {
+          ctx.fillStyle = '#000';
+          ctx.fillRect(0, 0, w, hg);
+          const R = modeData.torus;
+          R.ax += 0.012; R.ay += 0.018; R.az += 0.006;
+          const rings = 18, sides = 10;
+          const scale = Math.min(w, hg) * 0.28;
+          const cx = w / 2, cy = hg / 2, dist = 4;
+          const cosx = Math.cos(R.ax), sinx = Math.sin(R.ax);
+          const cosy = Math.cos(R.ay), siny = Math.sin(R.ay);
+          const cosz = Math.cos(R.az), sinz = Math.sin(R.az);
+          const projected = [];
+          for (let i = 0; i < rings; i++) {
+            const u = (i / rings) * Math.PI * 2;
+            const ring = [];
+            for (let j = 0; j < sides; j++) {
+              const v = (j / sides) * Math.PI * 2;
+              const radius = 1 + 0.42 * Math.cos(v);
+              const vx = radius * Math.cos(u), vy = radius * Math.sin(u), vz = 0.42 * Math.sin(v);
+              const y1 = vy * cosx - vz * sinx, z1 = vy * sinx + vz * cosx;
+              const x2 = vx * cosy + z1 * siny, z2 = -vx * siny + z1 * cosy;
+              const x3 = x2 * cosz - y1 * sinz, y3 = x2 * sinz + y1 * cosz;
+              const persp = dist / (dist + z2);
+              ring.push({ x: cx + x3 * scale * persp, y: cy + y3 * scale * persp, depth: z2 });
+            }
+            projected.push(ring);
+          }
+          const { r: br, g: bg, b: bb } = _hexToRgb(color);
+          for (let i = 0; i < rings; i++) {
+            for (let j = 0; j < sides; j++) {
+              const p = projected[i][j], around = projected[i][(j + 1) % sides];
+              const nextRing = projected[(i + 1) % rings][j];
+              const alpha = Math.max(0.3, Math.min(1, 0.7 - p.depth * 0.2));
+              ctx.strokeStyle = `rgba(${br},${bg},${bb},${alpha})`;
+              ctx.lineWidth = 2;
+              ctx.beginPath();
+              ctx.moveTo(p.x, p.y);
+              ctx.lineTo(around.x, around.y);
+              ctx.moveTo(p.x, p.y);
+              ctx.lineTo(nextRing.x, nextRing.y);
+              ctx.stroke();
+            }
+          }
           break;
         }
         default:

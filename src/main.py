@@ -20,6 +20,7 @@ from ytmusic_bridge import run_ytmusic_thread, run_companion_pairing_flow
 from http_server import start_http_server
 from ws_handler import ws_handler, run_key_panel_listener, load_wm_layouts, load_notepads
 from latest import load_latest
+from canvas import load_canvas
 
 state.data["commands"] = load_commands()
 state.data["rewards"] = load_rewards()
@@ -30,6 +31,7 @@ state.data["wm_layouts"] = load_wm_layouts()
 state.data["wm_layout"] = state.data["wm_layouts"].get("main", [])
 state.data["notepads"] = load_notepads()
 state.data["latest"] = load_latest()
+state.data["canvas"]["pixels"] = load_canvas()
 
 
 def run_twitch_token_refresh_thread() -> None:

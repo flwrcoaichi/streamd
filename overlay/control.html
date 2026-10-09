@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>streamd — control</title>
 <link rel="stylesheet" href="/wm.css">
+<link rel="stylesheet" href="/vendor/pickr-classic.min.css">
 <style>
 .key-panel-editor-preview {
   position: relative; height: 120px; margin-top: 8px; border: 1px solid var(--line-lit); background: rgba(10, 12, 13, 0.28);
@@ -149,6 +150,157 @@
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel-2); border: 1px solid var(--amber-dim); color: var(--amber); padding: 8px 14px; border-radius: 3px; font-size: 12px; opacity: 0; transform: translateY(6px); transition: opacity 0.2s, transform 0.2s; pointer-events: none; z-index: 200; }
   .toast.show { opacity: 1; transform: translateY(0); }
   .canvas-swatch { width: 100%; height: 28px; border: 1px solid var(--line-lit); border-radius: 2px; padding: 0; cursor: pointer; }
+
+  /* Layout workspace */
+  .tally { height: 48px; background: rgba(19, 22, 25, 0.96); backdrop-filter: blur(12px); }
+  .tally-brand { color: var(--text); letter-spacing: 0.12em; }
+  .tabs { gap: 4px; padding-left: 8px; }
+  .tab-btn { position: relative; border: 0; padding: 0 14px; color: var(--text-dim); }
+  .tab-btn.active { color: var(--amber); background: transparent; }
+  .tab-btn.active::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 2px; border-radius: 2px; background: var(--amber); }
+  .tally-layout-select { gap: 8px; padding: 0 10px; }
+  .tally-layout-select .hint { white-space: nowrap; }
+  #view-layout { height: calc(100vh - 48px); min-height: 420px; }
+  #layout-stage-wrap {
+    display: grid; place-items: center;
+    background-color: #0b0e10;
+    background-image: radial-gradient(ellipse at center, rgba(20, 25, 29, 0.48), transparent 72%),
+      linear-gradient(to right, rgba(116, 130, 140, 0.075) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(116, 130, 140, 0.075) 1px, transparent 1px);
+  }
+  #layout-stage-inner { left: 50%; top: 50%; }
+  #layout-sidebar {
+    width: min(660px, 48vw); flex: 0 0 min(660px, 48vw); padding: 0;
+    display: grid; grid-template-columns: minmax(205px, 0.82fr) minmax(300px, 1.18fr); gap: 1px;
+    overflow: hidden; background: #252c31; border-left-color: #252c31; box-shadow: -12px 0 32px rgba(0, 0, 0, 0.18);
+  }
+  #layout-controls, #layout-inspector {
+    min-width: 0; min-height: 0; overflow-y: auto; padding: 18px 16px 28px; background: #111518;
+  }
+  #layout-inspector { background: #13181b; }
+  .inspector-header { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #252c31; }
+  .inspector-eyebrow { color: #8b969e; font-size: 10px; font-weight: 700; letter-spacing: 0.14em; }
+  .inspector-title { margin-top: 5px; color: var(--text); font-size: 15px; font-weight: 700; }
+  #win-editor-empty { display: flex; min-height: 180px; align-items: center; justify-content: center; padding: 24px; border: 1px dashed #30383e; border-radius: 8px; color: #77828a; text-align: center; line-height: 1.65; }
+  #layout-inspector > .hint { margin-top: 18px; padding-top: 14px; border-top: 1px solid #252c31; }
+  #layout-controls > select, #layout-controls input[type=text], #layout-controls input[type=number],
+  #layout-controls textarea, #layout-inspector input[type=text], #layout-inspector input[type=number],
+  #layout-inspector textarea, #layout-inspector select, #layout-inspector .color-control input[type=text] {
+    background: #0b0e10; border-color: #30383e; border-radius: 5px; min-height: 34px;
+  }
+  .side-title { margin: 22px 0 10px; padding-bottom: 8px; color: #8b969e; border-bottom: 1px solid #252c31; }
+  .side-title:first-child { margin-top: 0; }
+  #layout-sidebar select:focus, #layout-sidebar input:focus, #layout-sidebar textarea:focus {
+    border-color: var(--amber); box-shadow: 0 0 0 2px rgba(255, 178, 56, 0.12);
+  }
+  #layout-sidebar button { min-height: 34px; margin-top: 8px; border-radius: 5px; background: #191e22; border-color: #30383e; }
+  #layout-sidebar button:hover { background: #22292e; }
+  #layout-sidebar button.primary { background: rgba(255, 178, 56, 0.13); border-color: var(--amber-dim); color: #ffc366; }
+  #layout-sidebar .field-row { gap: 8px; margin-top: 8px; }
+  #layout-sidebar .field-row > div { min-width: 0; flex: 1; }
+  #layout-sidebar .field-row label, #layout-sidebar .field > label {
+    color: #929da5; letter-spacing: 0.06em; margin-bottom: 5px;
+  }
+  #layout-sidebar .control-label { display: block; margin: 10px 0 5px; color: #929da5; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+  #layout-sidebar button:disabled { cursor: not-allowed; opacity: 0.45; }
+  #layout-sidebar .hint { color: #77828a; line-height: 1.55; overflow-wrap: anywhere; }
+  .win-list { gap: 5px; }
+  .win-list-item { min-height: 36px; padding: 7px 9px; border-color: #252c31; border-radius: 5px; }
+  .win-list-item.selected { background: rgba(255, 178, 56, 0.09); }
+  .win-list-item .rm { padding: 2px 4px; }
+  .field { margin-bottom: 12px; }
+  .field-row input[type=number], .field-row input[type=text], .field-row select { width: 100%; }
+  #layout-sidebar input[type=checkbox] { accent-color: var(--amber); }
+  #layout-sidebar input[type=range] { accent-color: var(--amber); }
+  #layout-sidebar input[type=color] { width: 100%; height: 34px; min-width: 0; padding: 3px; border: 1px solid #30383e; border-radius: 5px; background: #0b0e10; cursor: pointer; }
+  .color-control { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; }
+  .color-control input[type=color] { width: 42px !important; height: 34px; }
+  .color-control input[type=text] { min-width: 0; width: 100%; min-height: 34px; padding: 5px 7px; text-transform: uppercase; }
+  .color-alpha { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: #77828a; font-size: 10px; }
+  .color-alpha input[type=range] { flex: 1; min-width: 0; width: auto; height: 14px; margin: 0; }
+  .color-alpha output { width: 31px; text-align: right; font-variant-numeric: tabular-nums; color: #aeb8be; }
+  .gradient-stops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+  .gradient-stop { min-width: 0; padding: 8px; border: 1px solid #252c31; border-radius: 6px; background: rgba(5, 7, 8, 0.32); }
+  .gradient-stop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #87929a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
+  .gradient-stop-remove { width: auto !important; min-height: 20px !important; margin: 0 !important; padding: 1px 6px !important; color: #9aa4aa !important; font-size: 10px !important; }
+  .gradient-preview { height: 16px; margin-top: 9px; border: 1px solid rgba(255,255,255,0.14); border-radius: 4px; background-image: linear-gradient(90deg, #fff, #7ef7c6); }
+  .gradient-tools { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+  .gradient-tools .hint { margin: 0; }
+  #layout-sidebar .gradient-add { width: auto; min-height: 28px; margin: 0; padding: 4px 8px; font-size: 10px; white-space: nowrap; }
+  .color-gradient-editor { margin-top: 7px; }
+  .color-gradient-mode { font-size: 10px !important; }
+  .color-gradient-stops { display: none; }
+  .color-gradient-editor.enabled .color-gradient-stops { display: block; }
+  .color-gradient-editor.enabled .gradient-tools.color-gradient-stops { display: flex; }
+  .color-gradient-editor .gradient-stops { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .color-gradient-editor .gradient-preview { height: 12px; }
+  .color-gradient-editor .gradient-tools .hint { font-size: 9px; }
+  #layout-stage-wrap { animation: canvas-arrive 420ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+  #layout-controls { animation: rail-arrive 380ms 50ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+  #layout-inspector { animation: inspector-arrive 420ms 100ms cubic-bezier(0.2, 0.75, 0.25, 1) both; }
+  @keyframes canvas-arrive { from { opacity: 0.55; } to { opacity: 1; } }
+  @keyframes rail-arrive { from { opacity: 0; transform: translateX(12px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes inspector-arrive { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes picker-arrive { from { opacity: 0; transform: translateY(-5px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  .win-list-item { transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, transform 150ms ease; }
+  .win-list-item:hover { transform: translateX(2px); }
+  #layout-sidebar button { transition: border-color 150ms ease, background-color 150ms ease, color 150ms ease, transform 150ms ease; }
+  #layout-sidebar button:active { transform: translateY(1px); }
+  .color-control { grid-template-columns: 42px minmax(0, 1fr); }
+  .color-control input[type=color] { display: none; }
+  .color-picker-trigger, #layout-sidebar .color-picker-trigger {
+    display: block; position: relative; width: 42px; min-width: 42px; height: 34px; min-height: 34px;
+    margin: 0 !important; padding: 3px; overflow: hidden; border: 1px solid #30383e; border-radius: 6px;
+    background-color: #0b0e10; cursor: pointer; transition: border-color 150ms ease, transform 150ms ease;
+  }
+  .color-picker-trigger::before {
+    content: ''; display: block; width: 100%; height: 100%; border-radius: 3px;
+    background: var(--swatch-color, #ffffff); opacity: var(--swatch-opacity, 1);
+  }
+  .color-picker-trigger {
+    background-image: linear-gradient(45deg, rgba(0,0,0,.18) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.18) 75%),
+      linear-gradient(45deg, rgba(0,0,0,.18) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.18) 75%);
+    background-position: 0 0, 4px 4px; background-size: 8px 8px; background-blend-mode: normal;
+  }
+  .color-picker-trigger:hover { transform: translateY(-1px); border-color: var(--amber) !important; }
+  .color-picker-trigger:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .color-alpha { justify-content: space-between; padding: 1px 2px 0; }
+  .color-alpha output { width: auto; }
+  .pcr-app.streamd-picker {
+    z-index: 300; border: 1px solid #3a4148; border-radius: 10px; background: #151a1e;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55); animation: picker-arrive 160ms ease-out both;
+  }
+  .pcr-app.streamd-picker .pcr-interaction .pcr-result {
+    border: 1px solid #30383e; border-radius: 5px; background: #0b0e10; color: var(--text); font-family: var(--mono);
+  }
+  .pcr-app.streamd-picker .pcr-interaction .pcr-save {
+    border-radius: 5px; background: var(--amber); color: #17120a; font-family: var(--mono); font-weight: 700;
+  }
+  .pcr-app.streamd-picker .pcr-interaction .pcr-type.active { border-bottom-color: var(--amber); }
+  @media (prefers-reduced-motion: reduce) {
+    #layout-stage-wrap, #layout-controls, #layout-inspector, .pcr-app.streamd-picker { animation: none; }
+    .win-list-item, #layout-sidebar button, .color-picker-trigger { transition: none; }
+  }
+  @media (max-width: 980px) {
+    .tally { height: auto; min-height: 48px; flex-wrap: wrap; }
+    .tally-layout-select { order: 3; width: 100%; height: 42px; overflow-x: auto; border-top: 1px solid var(--line); border-left: 0; }
+    .tally-clock { margin-left: auto; }
+    #view-layout { height: calc(100vh - 90px); }
+  }
+  @media (max-width: 1100px) {
+    #view-layout { height: auto; min-height: calc(100vh - 48px); min-width: 0; flex-direction: column; }
+    #layout-stage-wrap { width: 100%; min-width: 0; flex: none; min-height: 52vh; }
+    #layout-sidebar { width: 100%; min-width: 0; flex-basis: auto; min-height: 460px; border-left: 0; border-top: 1px solid var(--line); }
+  }
+  @media (max-width: 700px) {
+    #view-layout { height: auto; min-height: calc(100vh - 90px); flex-direction: column; }
+    #layout-stage-wrap { flex: none; min-height: 48vh; }
+    #layout-sidebar { display: flex; flex-direction: column; min-height: 0; overflow: visible; }
+    #layout-controls, #layout-inspector { overflow: visible; padding: 18px 16px 24px; }
+    .tally-brand { padding: 0 10px; }
+    .tab-btn { padding: 0 10px; }
+    .tally-layout-select { padding: 0 8px; }
+  }
 </style>
 </head>
 <body>
@@ -176,6 +328,7 @@
     </div>
   </div>
   <div id="layout-sidebar">
+    <div id="layout-controls">
     <div class="side-title">overlay</div>
     <select id="overlay-select"></select>
     <div class="field-row"><button id="btn-overlay-new" type="button">new</button><button id="btn-overlay-del" type="button" style="color:var(--red)">delete</button></div>
@@ -191,13 +344,21 @@
     </select>
 
     <div class="side-title">bulk colors</div>
-    <div class="field-row"><input type="color" id="bulk-border" value="#ffffff"><input type="color" id="bulk-border2" value="#7ef7c6"></div>
-    <select id="bulk-border-mode" style="margin-top:6px;"><option value="solid">solid borders</option><option value="pixel">pixel gradient borders</option><option value="default">default (remove)</option></select>
+    <div class="gradient-stops" id="bulk-border-stops">
+      <div class="gradient-stop"><div class="gradient-stop-head">stop 1</div><input type="color" id="bulk-border" value="#ffffff"></div>
+      <div class="gradient-stop"><div class="gradient-stop-head">stop 2</div><input type="color" id="bulk-border2" value="#7ef7c6"></div>
+    </div>
+    <div class="gradient-tools"><span class="hint">Add colors for a smoother gradient</span><button class="gradient-add" id="bulk-border-add-stop" type="button">+ stop</button></div>
+    <div class="gradient-preview" id="bulk-border-preview"></div>
+    <label class="control-label" for="bulk-border-mode">border mode</label>
+    <select id="bulk-border-mode"><option value="solid">solid borders</option><option value="pixel">pixel gradient borders</option><option value="default">default (remove)</option></select>
     <button id="bulk-border-apply" type="button">apply to all borders</button>
-    <div class="field-row"><input type="color" id="bulk-spacer" value="#4ade80"></div>
+    <div class="field"><label for="bulk-bg">background color</label><input type="color" id="bulk-bg" value="#0a0c0d"></div>
+    <button id="bulk-bg-apply" type="button">apply background to all</button>
+    <div class="field"><label for="bulk-text">text color</label><input type="color" id="bulk-text" value="#d8dee2"></div>
+    <button id="bulk-text-apply" type="button">apply text to all</button>
+    <div class="field"><label for="bulk-spacer">spacer color</label><input type="color" id="bulk-spacer" value="#4ade80"></div>
     <button id="bulk-spacer-apply" type="button">apply to all spacers</button>
-    <div class="field-row"><input type="color" id="bulk-text" value="#d8dee2"></div>
-    <button id="bulk-text-apply" type="button">apply to all text</button>
 
     <div class="side-title">add window</div>
     <select id="add-panel-type">
@@ -227,6 +388,15 @@
     <div class="side-title">windows</div>
     <div class="win-list" id="win-list"></div>
 
+    <button id="btn-reset-layout" style="margin-top:16px;">reset to default layout</button>
+    </div>
+
+    <div id="layout-inspector">
+      <div class="inspector-header">
+        <div class="inspector-eyebrow">WINDOW INSPECTOR</div>
+        <div class="inspector-title" id="inspector-title">Properties</div>
+      </div>
+      <div id="win-editor-empty">Select a window on the canvas or from the list to edit its position, size, and appearance.</div>
     <div id="win-editor" style="display:none;">
       <div class="side-title">selected window</div>
       <div class="field-row">
@@ -279,6 +449,10 @@
 <option value="floorgrid">floor grid</option>
 <option value="bump">bump</option>
 <option value="wireframe">wireframe 3d</option>
+<option value="trails">particle trails</option>
+<option value="twister">twister ribbon 3d</option>
+<option value="fluid">fluid warp</option>
+<option value="torus">wireframe torus 3d</option>
           <option value="waveform">waveform bars</option>
         </select>
       </div>
@@ -387,7 +561,7 @@
 
         <label style="margin-top:8px;">drag keys inside the preview to place them</label>
         <div id="ed-key-panel-preview" class="key-panel-editor-preview"></div>
-        <div class="hint">keys: one per line as key|color|shape|x|y (x/y optional)</div>
+        <div class="hint">keys: one per line as key|color|shape|x|y; optional gradients use gradient=color~color</div>
         <textarea id="ed-key-panel-keys" rows="6" style="width:100%;background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;border:1px solid var(--line-lit);resize:vertical;">W|#7ef7c6|round
 A|#7ef7c6|square
 S|#7ef7c6|square
@@ -401,7 +575,12 @@ Space|#8be9fd|pill|20|12</textarea>
       <div class="field">
         <label>border</label>
         <select id="ed-border-mode"><option value="default">default</option><option value="solid">solid</option><option value="pixel">pixel gradient</option></select>
-        <div class="field-row"><input type="color" id="ed-border-color" value="#ffffff"><input type="color" id="ed-border-color2" value="#7ef7c6"></div>
+        <div class="gradient-stops" id="ed-border-stops">
+          <div class="gradient-stop"><div class="gradient-stop-head">stop 1</div><input type="color" id="ed-border-color" value="#ffffff"></div>
+          <div class="gradient-stop"><div class="gradient-stop-head">stop 2</div><input type="color" id="ed-border-color2" value="#7ef7c6"></div>
+        </div>
+        <div class="gradient-tools"><span class="hint">Pixel gradient uses every stop</span><button class="gradient-add" id="ed-border-add-stop" type="button">+ stop</button></div>
+        <div class="gradient-preview" id="ed-border-preview"></div>
       </div>
       <div class="field">
         <label><input type="checkbox" id="ed-title-color-on" style="width:auto;"> custom title text color</label>
@@ -425,14 +604,10 @@ Space|#8be9fd|pill|20|12</textarea>
       <button id="btn-remove-selected" style="color:var(--red); border-color:var(--red-dim);">remove window</button>
     </div>
 
-    <div class="hint">
-      drag windows by their header, resize from the bottom-right corner.
-      changes sync live to the overlay and persist on the daemon.
-      "screen" is intentionally blank — place your OBS scene under it manually.
-      words/tts/ad-warning/canvas windows only appear on stream when triggered
-      (!words, tts activity, an upcoming/active ad, or the canvas reveal).
+      <div class="hint">
+        Drag windows by their header and resize from the bottom-right corner. Changes sync live to the overlay and persist on the daemon. The screen window is intentionally blank — place your OBS scene under it manually. Words, TTS, ad-warning, and canvas windows only appear when triggered.
+      </div>
     </div>
-    <button id="btn-reset-layout" style="margin-top:16px;">reset to default layout</button>
   </div>
 </div>
 
@@ -479,8 +654,14 @@ Space|#8be9fd|pill|20|12</textarea>
   <div class="pane pane-3">
     <div class="pane-title">text to speech<span id="tts-tag">…</span></div>
     <div class="field"><div class="row"><input type="text" id="tts-input" placeholder="type something to say…"><button class="primary" id="btn-tts-speak">speak</button></div></div>
+    <div class="field"><div class="row"><select id="tts-engine-select" aria-label="TTS engine"></select><select id="tts-voice-select" aria-label="TTS voice"></select></div></div>
+    <div class="field"><input type="text" id="tts-reference-text" placeholder="transcript of selected Fish/F5 reference voice"></div>
+    <div class="hint" id="tts-reference-status">transcript auto-saves beside the selected voice</div>
+    <div class="field"><select id="tts-output-device-select" aria-label="TTS output device"></select></div>
     <div class="row" style="margin-top:8px;"><button id="btn-tts-skip">skip</button><button id="btn-tts-clear">clear</button><button id="btn-tts-toggle">toggle</button></div>
     <div class="kv" style="margin-top:8px;"><span class="k">queue</span><span class="v" id="tts-queue">0</span></div>
+    <div class="hint" id="tts-info">loading TTS…</div>
+    <div class="hint" id="tts-current"></div>
   </div>
 
   <div class="pane pane-3">
@@ -542,10 +723,12 @@ Space|#8be9fd|pill|20|12</textarea>
 <script src="/wm.js"></script>
 <script src="/panels.js"></script>
 <script src="/default-layout.js"></script>
+<script src="/vendor/pickr.min.js"></script>
 <script>
 const WS_URL = `ws://${location.hostname}:8877`;
 let ws = null;
 let state = {};
+let ttsReferenceSaveTimer = null;
 const $ = id => document.getElementById(id);
 
 function toast(msg) {
@@ -559,35 +742,316 @@ function send(msg) {
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // ── tabs ──────────────────────────────────────────────────────────────
+const colorPickers = new WeakMap();
 function enableAlpha(input) {
+  if (input.dataset.colorControl) return;
+  input.dataset.colorControl = 'true';
+  const base = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'flex:1;min-width:0;display:flex;flex-direction:column;gap:2px';
+  wrap.className = 'color-control';
   input.parentNode.insertBefore(wrap, input);
   wrap.appendChild(input);
-  input.style.width = '100%';
-  const slider = document.createElement('input');
-  slider.type = 'range'; slider.min = 0; slider.max = 100; slider.value = 100;
-  slider.title = 'opacity';
-  slider.style.cssText = 'width:100%;padding:0;margin:0';
-  wrap.appendChild(slider);
-  const base = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'color-picker-trigger';
+  trigger.setAttribute('aria-label', 'Choose color');
+  wrap.appendChild(trigger);
+
+  const hex = document.createElement('input');
+  hex.type = 'text';
+  hex.autocomplete = 'off';
+  hex.spellcheck = false;
+  hex.maxLength = 9;
+  hex.setAttribute('aria-label', 'Hex color with optional alpha');
+  hex.placeholder = '#RRGGBBAA';
+  wrap.appendChild(hex);
+
+  const alphaRow = document.createElement('label');
+  alphaRow.className = 'color-alpha';
+  alphaRow.append('opacity');
+  const output = document.createElement('output');
+  alphaRow.append(output);
+  wrap.appendChild(alphaRow);
+
+  let opacity = 255;
+  let picker = null;
+  const updateFields = () => {
+    const value = base.get.call(input).toUpperCase();
+    hex.value = opacity >= 255 ? value : value + opacity.toString(16).padStart(2, '0').toUpperCase();
+    output.value = `${Math.round(opacity * 100 / 255)}%`;
+    trigger.style.setProperty('--swatch-color', value);
+    trigger.style.setProperty('--swatch-opacity', String(opacity / 255));
+  };
   Object.defineProperty(input, 'value', {
     get() {
-      const hex = base.get.call(input);
-      const a = Math.round(slider.value * 2.55);
-      return a >= 255 ? hex : hex + a.toString(16).padStart(2, '0');
+      const value = base.get.call(input);
+      return opacity >= 255 ? value : value + opacity.toString(16).padStart(2, '0');
     },
-    set(v) {
-      v = String(v || '');
-      let a = 100;
-      if (/^#[0-9a-f]{8}$/i.test(v)) { a = Math.round(parseInt(v.slice(7), 16) / 2.55); v = v.slice(0, 7); }
-      base.set.call(input, v);
-      slider.value = a;
+    set(value) {
+      let normalized = String(value || '').trim();
+      let nextOpacity = 255;
+      if (/^#[0-9a-f]{8}$/i.test(normalized)) {
+        nextOpacity = parseInt(normalized.slice(7), 16);
+        normalized = normalized.slice(0, 7);
+      }
+      if (!/^#[0-9a-f]{6}$/i.test(normalized)) normalized = '#ffffff';
+      base.set.call(input, normalized);
+      opacity = nextOpacity;
+      updateFields();
+      if (picker) picker.setColor(`${normalized}${nextOpacity.toString(16).padStart(2, '0')}`, true);
     },
   });
-  slider.addEventListener('input', () => input.dispatchEvent(new Event('input', { bubbles: true })));
+  input.addEventListener('input', updateFields);
+  hex.addEventListener('input', () => {
+    if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex.value)) return;
+    input.value = hex.value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  hex.addEventListener('change', () => {
+    if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex.value)) updateFields();
+  });
+  picker = Pickr.create({
+    el: trigger,
+    useAsButton: true,
+    theme: 'classic',
+    appClass: 'streamd-picker',
+    default: input.value,
+    comparison: false,
+    closeOnScroll: true,
+    position: 'bottom-middle',
+    swatches: ['#ffb238', '#4ade80', '#5eb1ef', '#ff6b6b', '#c084fc', '#7ef7c6', '#ffffff', '#171a1d'],
+    components: {
+      preview: true,
+      opacity: true,
+      hue: true,
+      interaction: { hex: true, rgba: true, input: true, save: true },
+    },
+  });
+  picker.on('change', color => {
+    const value = color.toHEXA().toString();
+    if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value)) return;
+    base.set.call(input, value.slice(0, 7));
+    opacity = value.length === 9 ? parseInt(value.slice(7, 9), 16) : 255;
+    updateFields();
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  colorPickers.set(input, picker);
+  updateFields();
 }
 document.querySelectorAll('#view-layout input[type=color]').forEach(enableAlpha);
+
+function colorStops(container) {
+  return Array.from(container.querySelectorAll('input[type=color]'), input => input.value);
+}
+
+function updateGradientPreview(container, preview) {
+  const colors = colorStops(container);
+  preview.style.backgroundImage = `linear-gradient(90deg, ${colors.join(', ')})`;
+  const addButton = $(container.dataset.addButton);
+  addButton.disabled = colors.length >= 5;
+  addButton.title = colors.length >= 5 ? 'The gradient supports up to five stops' : 'Add a gradient color stop';
+}
+
+function gradientPreviewFor(container) {
+  return $(container.dataset.preview);
+}
+
+function addGradientStop(container, color) {
+  const index = container.querySelectorAll('input[type=color]').length;
+  if (index >= 5) return;
+  const stop = document.createElement('div');
+  stop.className = 'gradient-stop dynamic';
+  const head = document.createElement('div');
+  head.className = 'gradient-stop-head';
+  const title = document.createElement('span');
+  title.textContent = `stop ${index + 1}`;
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'gradient-stop-remove';
+  remove.textContent = 'remove';
+  remove.setAttribute('aria-label', `Remove gradient stop ${index + 1}`);
+  remove.onclick = () => {
+    const input = stop.querySelector('input[type=color]');
+    const picker = input && colorPickers.get(input);
+    if (picker) picker.destroyAndRemove();
+    stop.remove();
+    renumberGradientStops(container);
+    updateGradientPreview(container, gradientPreviewFor(container));
+  };
+  head.append(title, remove);
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.value = color || '#7ef7c6';
+  input.addEventListener('input', () => updateGradientPreview(container, gradientPreviewFor(container)));
+  stop.append(head, input);
+  enableAlpha(input);
+  container.appendChild(stop);
+  renumberGradientStops(container);
+  updateGradientPreview(container, gradientPreviewFor(container));
+}
+
+function renumberGradientStops(container) {
+  Array.from(container.querySelectorAll('.gradient-stop')).forEach((stop, index) => {
+    const title = stop.querySelector('.gradient-stop-head span');
+    if (title) title.textContent = `stop ${index + 1}`;
+  });
+}
+
+function setGradientStops(container, colors) {
+  container.querySelectorAll('.gradient-stop.dynamic').forEach(stop => {
+    const input = stop.querySelector('input[type=color]');
+    const picker = input && colorPickers.get(input);
+    if (picker) picker.destroyAndRemove();
+    stop.remove();
+  });
+  const inputs = container.querySelectorAll('input[type=color]');
+  const values = colors.length >= 2 ? colors : ['#ffffff', '#7ef7c6'];
+  inputs[0].value = values[0] || '#ffffff';
+  if (inputs[1]) inputs[1].value = values[1] || '#7ef7c6';
+  values.slice(2, 5).forEach(color => addGradientStop(container, color));
+  updateGradientPreview(container, gradientPreviewFor(container));
+}
+
+[
+  ['ed-border-stops', 'ed-border-preview', 'ed-border-add-stop'],
+  ['bulk-border-stops', 'bulk-border-preview', 'bulk-border-add-stop'],
+].forEach(([id, previewId, addButtonId]) => {
+  const container = $(id);
+  container.dataset.preview = previewId;
+  container.dataset.addButton = addButtonId;
+  container.querySelectorAll('input[type=color]').forEach(input => {
+    input.addEventListener('input', () => updateGradientPreview(container, $(previewId)));
+  });
+});
+$('ed-border-add-stop').onclick = () => {
+  const stops = colorStops($('ed-border-stops'));
+  addGradientStop($('ed-border-stops'), stops[stops.length - 1]);
+};
+$('bulk-border-add-stop').onclick = () => {
+  const stops = colorStops($('bulk-border-stops'));
+  addGradientStop($('bulk-border-stops'), stops[stops.length - 1]);
+};
+updateGradientPreview($('ed-border-stops'), $('ed-border-preview'));
+updateGradientPreview($('bulk-border-stops'), $('bulk-border-preview'));
+
+function createColorGradientEditor(input, optionKey, defaultSecond = '#7ef7c6') {
+  const wrap = document.createElement('div');
+  wrap.className = 'color-gradient-editor';
+  wrap.dataset.optionKey = optionKey;
+
+  const mode = document.createElement('select');
+  mode.className = 'color-gradient-mode';
+  mode.setAttribute('aria-label', `${input.id} color mode`);
+  mode.innerHTML = '<option value="solid">solid color</option><option value="gradient">gradient</option>';
+  wrap.appendChild(mode);
+
+  const stops = document.createElement('div');
+  stops.className = 'color-gradient-stops';
+  stops.id = `gradient-${input.id}-stops`;
+  stops.dataset.preview = `gradient-${input.id}-preview`;
+  stops.dataset.addButton = `gradient-${input.id}-add`;
+  const initialColors = [input.value || '#ffffff', defaultSecond];
+  initialColors.forEach((color, index) => {
+    const stop = document.createElement('div');
+    stop.className = 'gradient-stop';
+    const title = document.createElement('div');
+    title.className = 'gradient-stop-head';
+    title.textContent = `stop ${index + 1}`;
+    const colorInput = document.createElement('input');
+    colorInput.type = 'color';
+    colorInput.value = color;
+    colorInput.addEventListener('input', () => updateGradientPreview(stops, preview));
+    stop.append(title, colorInput);
+    stops.appendChild(stop);
+    enableAlpha(colorInput);
+  });
+  wrap.appendChild(stops);
+
+  const tools = document.createElement('div');
+  tools.className = 'gradient-tools color-gradient-stops';
+  const hint = document.createElement('span');
+  hint.className = 'hint';
+  hint.textContent = 'Add up to five gradient colors';
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.id = `gradient-${input.id}-add`;
+  add.className = 'gradient-add';
+  add.textContent = '+ stop';
+  tools.append(hint, add);
+  wrap.appendChild(tools);
+
+  const preview = document.createElement('div');
+  preview.className = 'gradient-preview color-gradient-stops';
+  preview.id = `gradient-${input.id}-preview`;
+  wrap.appendChild(preview);
+
+  const colorWrap = input.closest('.color-control');
+  colorWrap.after(wrap);
+  add.onclick = () => {
+    const current = colorStops(stops);
+    addGradientStop(stops, current[current.length - 1]);
+  };
+  mode.addEventListener('change', () => {
+    wrap.classList.toggle('enabled', mode.value === 'gradient');
+    if (mode.value === 'gradient' && stops.querySelectorAll('input[type=color]').length < 2) {
+      setGradientStops(stops, [input.value || '#ffffff', defaultSecond]);
+    }
+    updateGradientPreview(stops, preview);
+  });
+  updateGradientPreview(stops, preview);
+  return wrap;
+}
+
+const colorGradientFields = [
+  ['bulk-bg', 'bg_color_stops', '#263444'],
+  ['bulk-text', 'text_color_stops', '#7ef7c6'],
+  ['bulk-spacer', 'spacer_color_stops', '#7ef7c6'],
+  ['ed-bg-color', 'bg_color_stops', '#263444'],
+  ['ed-text-color', 'text_color_stops', '#7ef7c6'],
+  ['ed-spacer-color', 'spacer_color_stops', '#7ef7c6'],
+  ['ed-title-color', 'title_color_stops', '#ffb238'],
+  ['ed-key-panel-active-color', 'active_color_stops', '#ffb238'],
+  ['ed-key-panel-inactive-color', 'inactive_color_stops', '#354453'],
+  ['ed-key-panel-border-color', 'border_color_stops', '#7ef7c6'],
+  ['ed-key-panel-selected-color', 'selected_key_color_stops', '#ffb238'],
+];
+const colorGradientEditors = new Map();
+colorGradientFields.forEach(([inputId, optionKey, second]) => {
+  const input = $(inputId);
+  if (!input) return;
+  colorGradientEditors.set(inputId, createColorGradientEditor(input, optionKey, second));
+});
+
+function setColorGradient(inputId, colors) {
+  const editor = colorGradientEditors.get(inputId);
+  if (!editor) return;
+  const input = $(inputId);
+  const mode = editor.querySelector('.color-gradient-mode');
+  const stops = editor.querySelector('.color-gradient-stops');
+  if (Array.isArray(colors) && colors.length >= 2) {
+    mode.value = 'gradient';
+    editor.classList.add('enabled');
+    setGradientStops(stops, colors.slice(0, 5));
+  } else {
+    mode.value = 'solid';
+    editor.classList.remove('enabled');
+    setGradientStops(stops, [input.value || '#ffffff', editor.dataset.defaultSecond || '#7ef7c6']);
+  }
+  updateGradientPreview(stops, $(stops.dataset.preview));
+}
+
+function selectedColorGradient(inputId) {
+  const editor = colorGradientEditors.get(inputId);
+  if (!editor || editor.querySelector('.color-gradient-mode').value !== 'gradient') return null;
+  return colorStops(editor.querySelector('.color-gradient-stops'));
+}
+
+colorGradientEditors.forEach((editor, inputId) => {
+  const field = colorGradientFields.find(item => item[0] === inputId);
+  editor.dataset.defaultSecond = field[2];
+  setColorGradient(inputId, null);
+});
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => {
@@ -628,6 +1092,7 @@ function parseKeyPanelConfig(raw) {
     const shape = ['round', 'square', 'pill', 'diamond'].includes(shapeValue.toLowerCase()) ? shapeValue.toLowerCase() : 'round';
     const x = Number.isFinite(Number(parts[3])) ? Number(parts[3]) : null;
     const y = Number.isFinite(Number(parts[4])) ? Number(parts[4]) : null;
+    const colorStopsPart = parts.find(part => part.startsWith('gradient='));
     if (!key) continue;
     const item = {
       key,
@@ -636,6 +1101,7 @@ function parseKeyPanelConfig(raw) {
       shape,
       active: false,
     };
+    if (colorStopsPart) item.color_stops = colorStopsPart.slice('gradient='.length).split('~').filter(Boolean).slice(0, 5);
     if (x !== null) item.x = x;
     if (y !== null) item.y = y;
     keys.push(item);
@@ -650,7 +1116,10 @@ function parseKeyPanelConfig(raw) {
     border_width: $('ed-key-panel-border-width') ? parseInt($('ed-key-panel-border-width').value, 10) || 1 : 1,
     corner_radius: $('ed-key-panel-corner-radius') ? (Number($('ed-key-panel-corner-radius').value) || 0) : 0,
     active_color: $('ed-key-panel-active-color').value || '#7ef7c6',
+    active_color_stops: selectedColorGradient('ed-key-panel-active-color'),
     inactive_color: $('ed-key-panel-inactive-color').value || '#1f2731',
+    inactive_color_stops: selectedColorGradient('ed-key-panel-inactive-color'),
+    border_color_stops: selectedColorGradient('ed-key-panel-border-color'),
     text_color: $('ed-text-color').value || '#f5f7fa',
     keys,
   };
@@ -661,6 +1130,7 @@ function serializeKeyPanelConfig(cfg) {
     const parts = [String(k.key || '').toUpperCase() || 'KEY', k.color || '#7ef7c6', k.shape || 'round'];
     if (Number.isFinite(Number(k.x))) parts.push(String(Number(k.x)));
     if (Number.isFinite(Number(k.y))) parts.push(String(Number(k.y)));
+    if (Array.isArray(k.color_stops) && k.color_stops.length >= 2) parts.push(`gradient=${k.color_stops.slice(0, 5).join('~')}`);
     return parts.join('|');
   }).join('\n');
 }
@@ -687,6 +1157,9 @@ function renderKeyPanelKeyList() {
     row.innerHTML = '<span class="key-panel-editor-swatch" style="background:' + (key.color || '#7ef7c6') + '"></span>' +
       '<span style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (key.label || key.key || 'KEY').toUpperCase() + '</span>' +
       '<span style="color:var(--text-dimmer);">' + (key.shape || 'round') + '</span>';
+    if (key.color_stops && key.color_stops.length >= 2) {
+      row.querySelector('.key-panel-editor-swatch').style.background = `linear-gradient(135deg, ${key.color_stops.join(', ')})`;
+    }
     row.addEventListener('click', () => {
       preview.dataset.selectedIndex = String(idx);
       renderKeyPanelPreview();
@@ -709,6 +1182,7 @@ function syncSelectedKeyPanelEditor() {
   keyInput.value = key.key || '';
   shapeInput.value = key.shape || 'round';
   colorInput.value = key.color || '#7ef7c6';
+  setColorGradient('ed-key-panel-selected-color', key.color_stops);
   xInput.value = Number.isFinite(Number(key.x)) ? Number(key.x) : 0;
   yInput.value = Number.isFinite(Number(key.y)) ? Number(key.y) : 0;
 }
@@ -722,7 +1196,10 @@ function updateSelectedKeyPanelFromEditor() {
   const keyName = $('ed-key-panel-selected-key').value.trim().toLowerCase() || key.key || 'w';
   key.key = keyName;
   key.shape = $('ed-key-panel-selected-shape').value || 'round';
-  key.color = $('ed-key-panel-selected-color').value || '#7ef7c6';
+  const selectedColorStops = selectedColorGradient('ed-key-panel-selected-color');
+  key.color = selectedColorStops ? selectedColorStops[0] : ($('ed-key-panel-selected-color').value || '#7ef7c6');
+  if (selectedColorStops) key.color_stops = selectedColorStops;
+  else delete key.color_stops;
   key.x = snapKeyPanelValue($('ed-key-panel-selected-x').value);
   key.y = snapKeyPanelValue($('ed-key-panel-selected-y').value);
   if (!Number.isFinite(key.x)) delete key.x; else key.x = Math.max(0, key.x);
@@ -771,8 +1248,15 @@ function renderKeyPanelPreview() {
     el.style.height = `${size}px`;
     el.style.left = `${cx}px`;
     el.style.top = `${cy}px`;
-    el.style.background = keyColor;
+    el.style.background = key.color_stops && key.color_stops.length >= 2
+      ? `linear-gradient(135deg, ${key.color_stops.join(', ')})`
+      : cfg.active_color_stops && cfg.active_color_stops.length >= 2
+        ? `linear-gradient(135deg, ${cfg.active_color_stops.join(', ')})`
+        : keyColor;
     el.style.border = borderEnabled ? `${borderWidth}px solid ${borderColor}` : 'none';
+    el.style.borderImage = borderEnabled && cfg.border_color_stops && cfg.border_color_stops.length >= 2
+      ? `linear-gradient(135deg, ${cfg.border_color_stops.join(', ')}) 1`
+      : 'none';
     el.style.borderRadius = radiusValue;
     el.style.color = '#08120d';
     el.style.setProperty('--key-color', keyColor);
@@ -936,6 +1420,8 @@ function fitStage() {
   const wrap = $('layout-stage-wrap');
   const inner = $('layout-stage-inner');
   const scale = Math.min(wrap.clientWidth / 1440, wrap.clientHeight / 1080);
+  inner.style.left = `${(wrap.clientWidth - 1440 * scale) / 2}px`;
+  inner.style.top = `${(wrap.clientHeight - 1080 * scale) / 2}px`;
   inner.style.transform = `scale(${scale})`;
 }
 window.addEventListener('resize', fitStage);
@@ -958,10 +1444,24 @@ function refreshWinList() {
 
 function refreshWinEditor() {
   const ed = $('win-editor');
-  if (!selectedWinId) { ed.style.display = 'none'; return; }
+  const empty = $('win-editor-empty');
+  const title = $('inspector-title');
+  if (!selectedWinId) {
+    ed.style.display = 'none';
+    empty.style.display = '';
+    title.textContent = 'Properties';
+    return;
+  }
   const win = wm.getWindow(selectedWinId);
-  if (!win) { ed.style.display = 'none'; return; }
+  if (!win) {
+    ed.style.display = 'none';
+    empty.style.display = '';
+    title.textContent = 'Properties';
+    return;
+  }
   ed.style.display = '';
+  empty.style.display = 'none';
+  title.textContent = win.title;
   $('ed-x').value = win.x; $('ed-y').value = win.y;
   $('ed-w').value = win.w; $('ed-h').value = win.h;
   $('ed-title').value = win.title;
@@ -991,6 +1491,7 @@ function refreshWinEditor() {
     const line = [keyName, k.color || '#7ef7c6', k.shape || 'round'];
     if (Number.isFinite(Number(k.x))) line.push(String(Number(k.x)));
     if (Number.isFinite(Number(k.y))) line.push(String(Number(k.y)));
+    if (Array.isArray(k.color_stops) && k.color_stops.length >= 2) line.push(`gradient=${k.color_stops.slice(0, 5).join('~')}`);
     return line.join('|');
   }).join('\n');
   renderKeyPanelPreview();
@@ -1024,9 +1525,13 @@ function refreshWinEditor() {
   $('ed-key-panel-row').style.display = win.panel === 'key_panel' ? '' : 'none';
   $('ed-canvas-size-row').style.display = win.panel === 'canvas' ? '' : 'none';
   const wo = win.opts || {};
+  colorGradientFields.forEach(([inputId, optionKey]) => {
+    if (inputId.startsWith('ed-') && inputId !== 'ed-key-panel-selected-color') {
+      setColorGradient(inputId, wo[optionKey]);
+    }
+  });
   $('ed-border-mode').value = wo.border_mode || 'default';
-  $('ed-border-color').value = wo.border_color || '#ffffff';
-  $('ed-border-color2').value = wo.border_color2 || '#7ef7c6';
+  setGradientStops($('ed-border-stops'), wo.border_stops || [wo.border_color || '#ffffff', wo.border_color2 || '#7ef7c6']);
   $('ed-title-color-on').checked = !!wo.title_color;
   $('ed-title-color').value = wo.title_color || '#0a0d0a';
   $('ed-spacer-pixel-row').style.display = isSpacer ? '' : 'none';
@@ -1054,11 +1559,24 @@ $('btn-apply-edit').onclick = () => {
   const opts = { ...(win.opts || {}) };
   opts.text_color = $('ed-text-color').value || '#d8dee2';
   opts.bg_color = $('ed-bg-color').value || '#0a0c0d';
+  colorGradientFields.forEach(([inputId, optionKey]) => {
+    if (!inputId.startsWith('ed-') || inputId === 'ed-key-panel-selected-color') return;
+    const appliesToPanel =
+      inputId === 'ed-bg-color' ||
+      inputId === 'ed-text-color' ||
+      (win.panel === 'spacer' && inputId === 'ed-spacer-color') ||
+      (win.panel === 'key_panel' && inputId.startsWith('ed-key-panel-'));
+    if (!appliesToPanel) return;
+    const stops = selectedColorGradient(inputId);
+    if (stops) opts[optionKey] = stops;
+    else delete opts[optionKey];
+  });
   opts.font_size = parseInt($('ed-font-size').value, 10) || 13;
   opts.font_family = $('ed-font-family').value || 'monospace';
   if (win.panel === 'spacer') {
     opts.spacer_kind = $('ed-spacer-kind').value;
-    opts.spacer_color = $('ed-spacer-color').value || SPACER_COLOR_DEFAULTS[opts.spacer_kind] || '#00ff66';
+    opts.spacer_color = selectedColorGradient('ed-spacer-color')?.[0] ||
+      $('ed-spacer-color').value || SPACER_COLOR_DEFAULTS[opts.spacer_kind] || '#00ff66';
     if (opts.spacer_kind === 'wireframe') {
       opts.spacer_wireframe_shape = $('ed-wireframe-shape').value;
     }
@@ -1082,11 +1600,11 @@ $('btn-apply-edit').onclick = () => {
     opts.gap = parseInt($('ed-key-panel-gap').value, 10) || 8;
     opts.glow = $('ed-key-panel-glow').checked;
     opts.border = $('ed-key-panel-border').checked;
-    opts.border_color = $('ed-key-panel-border-color').value || '#ffffff';
+    opts.border_color = selectedColorGradient('ed-key-panel-border-color')?.[0] || $('ed-key-panel-border-color').value || '#ffffff';
     opts.border_width = parseInt($('ed-key-panel-border-width').value, 10) || 1;
     opts.corner_radius = Number($('ed-key-panel-corner-radius').value) || 0;
-    opts.active_color = $('ed-key-panel-active-color').value || '#7ef7c6';
-    opts.inactive_color = $('ed-key-panel-inactive-color').value || '#1f2731';
+    opts.active_color = selectedColorGradient('ed-key-panel-active-color')?.[0] || $('ed-key-panel-active-color').value || '#7ef7c6';
+    opts.inactive_color = selectedColorGradient('ed-key-panel-inactive-color')?.[0] || $('ed-key-panel-inactive-color').value || '#1f2731';
     opts.text_color = $('ed-text-color').value || '#f5f7fa';
     opts.keys = keyCfg.keys;
     send({ cmd: 'key_panel_set', key_panel: { ...opts } });
@@ -1094,12 +1612,24 @@ $('btn-apply-edit').onclick = () => {
   if (win.panel === 'canvas') opts.size = parseInt($('ed-canvas-size').value, 10) || 100;
   const bm = $('ed-border-mode').value;
   if (bm === 'default') { delete opts.border_mode; delete opts.border_color; delete opts.border_color2; }
-  else { opts.border_mode = bm; opts.border_color = $('ed-border-color').value; opts.border_color2 = $('ed-border-color2').value; }
+  else {
+    const stops = colorStops($('ed-border-stops'));
+    opts.border_mode = bm;
+    opts.border_color = stops[0];
+    opts.border_color2 = stops[1];
+    opts.border_stops = stops;
+  }
+  if (bm === 'default') delete opts.border_stops;
   if (win.panel === 'spacer') opts.spacer_pixel = parseInt($('ed-spacer-pixel').value, 10) || 2;
   if (win.panel === 'notepad') opts.notepad_markdown = $('ed-notepad-md').checked;
   if (win.panel === 'latest') opts.latest_show = $('ed-latest-show').value;
-  if ($('ed-title-color-on').checked) opts.title_color = $('ed-title-color').value;
-  else delete opts.title_color;
+  if ($('ed-title-color-on').checked) {
+    const titleStops = selectedColorGradient('ed-title-color');
+    opts.title_color = titleStops?.[0] || $('ed-title-color').value;
+    if (titleStops) opts.title_color_stops = titleStops;
+    else delete opts.title_color_stops;
+  }
+  else { delete opts.title_color; delete opts.title_color_stops; }
   patch.opts = opts;
   wm.updateWindow(selectedWinId, patch);
   refreshWinList();
@@ -1273,6 +1803,12 @@ function handleMessage(msg) {
     case 'message': state.message = msg.value; broadcastToAllPanels('message', { value: msg.value }); break;
     case 'stats': state.stats = msg; renderStats(); break;
     case 'tts_state': state.tts = msg.tts; renderTts(); broadcastToAllPanels('tts_state', msg.tts); break;
+    case 'tts_reference_text_saved':
+      $('tts-reference-status').textContent = `transcript saved: ${msg.path.split(/[\\/]/).pop()}`;
+      break;
+    case 'tts_reference_text_error':
+      $('tts-reference-status').textContent = `transcript save failed: ${msg.error}`;
+      break;
     case 'schedule': state.schedule = msg.schedule; renderSchedule(); break;
     case 'twitch_stats': state.twitch = msg.twitch; renderTwitch(); break;
     case 'obs_state': state.obs = msg.obs; renderObs(); break;
@@ -1343,9 +1879,70 @@ function renderStats() {
 
 function renderTts() {
   const t = state.tts || {};
-  const label = t.loading ? 'loading model' : (t.generating ? 'generating' : (t.speaking ? 'speaking' : (t.enabled ? 'ready' : 'disabled')));
+  const label = t.pending_engine
+    ? `switching to ${t.pending_engine}`
+    : (t.loading ? 'loading model' : (t.generating ? 'generating' : (t.speaking ? 'speaking' : (t.enabled ? 'ready' : 'disabled'))));
   $('tts-tag').textContent = label;
   $('tts-queue').textContent = t.queue_len ?? 0;
+
+  function setOptions(select, options, selected) {
+    const key = JSON.stringify(options);
+    if (select.dataset.options !== key) {
+      select.replaceChildren();
+      options.forEach(([name, value]) => {
+        const option = document.createElement('option');
+        option.textContent = name;
+        option.value = value;
+        select.appendChild(option);
+      });
+      select.dataset.options = key;
+    }
+    if (document.activeElement !== select) select.value = selected;
+  }
+
+  setOptions(
+    $('tts-engine-select'),
+    (t.engines || [
+      { id: 'chatterbox', name: 'Chatterbox Nano' },
+      { id: 'kokoro', name: 'Kokoro' },
+      { id: 'fish_s2_gguf', name: 'Fish S2 Pro (GGUF)' },
+      { id: 'f5_tts', name: 'F5-TTS' }
+    ])
+      .map(engine => [engine.name || engine.id, engine.id]),
+    t.pending_engine || t.engine || 'chatterbox'
+  );
+  setOptions(
+    $('tts-voice-select'),
+    [['default', ''], ...(t.voices || []).map(voice => [voice, voice])],
+    $('tts-voice-select').value || ''
+  );
+  $('tts-reference-status').textContent = t.reference_text_error
+    ? `transcript save failed: ${t.reference_text_error}`
+    : t.reference_text_saved
+      ? `transcript saved: ${t.reference_text_saved}.txt`
+      : 'transcript auto-saves beside the selected voice';
+  setOptions(
+    $('tts-output-device-select'),
+    [['System default', ''], ...(t.output_devices || []).map(device => [`${device.name} [${device.id}]`, String(device.id)])],
+    t.output_device == null ? '' : String(t.output_device)
+  );
+
+  const elapsed = Number(t.generation_elapsed || 0).toFixed(1);
+  const progress = t.generation_max_steps
+    ? ` · ${t.generation_step || 0}/${t.generation_max_steps} tokens · ${Number(t.generation_tokens_per_second || 0).toFixed(1)} tok/s`
+    : '';
+  const previousGeneration = t.generation_elapsed
+    ? ` · last generation: ${elapsed}s${t.generation_max_steps ? ` · ${t.generation_step || 0} tokens · ${Number(t.generation_tokens_per_second || 0).toFixed(1)} tok/s` : ''}`
+    : '';
+  $('tts-info').textContent = t.output_error
+    ? `engine: ${t.engine_name || t.engine || '—'} · output: ${t.output_error}`
+    : t.error
+      ? `${t.engine_name || t.engine || 'TTS'} unavailable: ${t.error}`
+      : `${t.generating ? `generating ${t.engine_name || t.engine} · ${elapsed}s${progress}` : `engine: ${t.engine_name || t.engine || '—'}`} · output: ${t.output_device_name || 'System default'}${t.generating ? '' : previousGeneration}`;
+  const current = t.current || '';
+  $('tts-current').textContent = current
+    ? `current: ${current.length} chars · ${current.trim().split(/\s+/).filter(Boolean).length} words · ${current}`
+    : '';
 }
 
 function renderSchedule() {
@@ -1498,8 +2095,27 @@ $('message-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('
 $('btn-message-clear').onclick = () => send({ cmd: 'clear_message' });
 $('sw-scheduled').onclick = () => send({ cmd: 'set_scheduled', value: !$('sw-scheduled').classList.contains('on') });
 $('offline-text-input').addEventListener('change', () => send({ cmd: 'set_offline_text', value: $('offline-text-input').value }));
-$('btn-tts-speak').onclick = () => { const v = $('tts-input').value.trim(); if (v) { send({ cmd: 'tts_say', value: v }); $('tts-input').value = ''; } };
+$('btn-tts-speak').onclick = () => { const v = $('tts-input').value.trim(); if (v) { send({ cmd: 'tts_say', value: v, voice: $('tts-voice-select').value || null, reference_text: $('tts-reference-text').value.trim() }); $('tts-input').value = ''; } };
 $('tts-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-tts-speak').click(); });
+$('tts-engine-select').onchange = () => send({ cmd: 'tts_set_engine', value: $('tts-engine-select').value });
+$('tts-voice-select').onchange = () => {
+  const voice = $('tts-voice-select').value;
+  $('tts-reference-text').value = (state.tts?.reference_texts || {})[voice] || '';
+};
+$('tts-reference-text').addEventListener('input', () => {
+  const voice = $('tts-voice-select').value;
+  if (!voice) {
+    $('tts-reference-status').textContent = 'select a voice to save its transcript';
+    return;
+  }
+  const referenceText = $('tts-reference-text').value;
+  clearTimeout(ttsReferenceSaveTimer);
+  $('tts-reference-status').textContent = 'saving transcript…';
+  ttsReferenceSaveTimer = setTimeout(() => {
+    send({ cmd: 'tts_save_reference_text', voice, reference_text: referenceText });
+  }, 700);
+});
+$('tts-output-device-select').onchange = () => send({ cmd: 'tts_set_output_device', value: $('tts-output-device-select').value });
 $('btn-tts-skip').onclick = () => send({ cmd: 'tts_skip' });
 $('btn-tts-clear').onclick = () => send({ cmd: 'tts_clear' });
 $('btn-tts-toggle').onclick = () => send({ cmd: 'tts_toggle' });
@@ -1546,6 +2162,7 @@ $('ed-scroller-state').addEventListener('change', () => {
 
 $('ed-spacer-kind').addEventListener('change', () => {
   $('ed-spacer-color').value = SPACER_COLOR_DEFAULTS[$('ed-spacer-kind').value] || '#00ff66';
+  setColorGradient('ed-spacer-color', null);
   refreshSpacerRowsFromDropdown();
 });
 function loadOverlay(name) {
@@ -1595,11 +2212,29 @@ function bulkOpts(fn) {
 }
 $('bulk-border-apply').onclick = () => bulkOpts((w, o) => {
   const m = $('bulk-border-mode').value;
-  if (m === 'default') { delete o.border_mode; delete o.border_color; delete o.border_color2; return; }
-  o.border_mode = m; o.border_color = $('bulk-border').value; o.border_color2 = $('bulk-border2').value;
+  if (m === 'default') { delete o.border_mode; delete o.border_color; delete o.border_color2; delete o.border_stops; return; }
+  const stops = colorStops($('bulk-border-stops'));
+  o.border_mode = m; o.border_color = stops[0]; o.border_color2 = stops[1]; o.border_stops = stops;
 });
-$('bulk-spacer-apply').onclick = () => bulkOpts((w, o) => { if (w.panel !== 'spacer') return false; o.spacer_color = $('bulk-spacer').value; });
-$('bulk-text-apply').onclick = () => bulkOpts((w, o) => { o.text_color = $('bulk-text').value; });
+$('bulk-bg-apply').onclick = () => bulkOpts((w, o) => {
+  const stops = selectedColorGradient('bulk-bg');
+  o.bg_color = stops ? stops[0] : $('bulk-bg').value;
+  if (stops) o.bg_color_stops = stops;
+  else delete o.bg_color_stops;
+});
+$('bulk-text-apply').onclick = () => bulkOpts((w, o) => {
+  const stops = selectedColorGradient('bulk-text');
+  o.text_color = stops ? stops[0] : $('bulk-text').value;
+  if (stops) o.text_color_stops = stops;
+  else delete o.text_color_stops;
+});
+$('bulk-spacer-apply').onclick = () => bulkOpts((w, o) => {
+  if (w.panel !== 'spacer') return false;
+  const stops = selectedColorGradient('bulk-spacer');
+  o.spacer_color = stops ? stops[0] : $('bulk-spacer').value;
+  if (stops) o.spacer_color_stops = stops;
+  else delete o.spacer_color_stops;
+});
 
 let npTimer = null;
 $('ed-notepad-text').addEventListener('input', () => {
