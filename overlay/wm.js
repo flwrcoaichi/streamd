@@ -36,10 +36,35 @@ function createWM(opts) {
     win.y = Math.max(0, Math.min(win.y, sh - 10));
   }
 
+  let theme = {};
+  const effOpts = win => Object.assign({}, theme, win.opts || {});
+  function setTheme(t) {
+    theme = t && typeof t === 'object' ? t : {};
+    windows.forEach((w, id) => { const rec = els.get(id); if (rec) { applyGeometry(w, rec); applyWindowOpts(w, rec); } });
+  }
+  const past = [], future = [];
+  let last = null, restoring = false;
+
   function emitLayoutChange() {
     if (suppressEmit) return;
+    const snap = JSON.stringify(getLayout());
+    if (snap !== last) {
+      if (last !== null) { past.push(last); if (past.length > 100) past.shift(); }
+      future.length = 0;
+      last = snap;
+    }
     onLayoutChange(getLayout());
   }
+
+  function restore(snap) {
+    restoring = true;
+    setLayout(JSON.parse(snap), { silent: true });
+    restoring = false;
+    last = snap;
+    onLayoutChange(getLayout());
+  }
+  function undo() { if (!past.length) return; future.push(last); restore(past.pop()); }
+  function redo() { if (!future.length) return; past.push(last); restore(future.pop()); }
 
   function getLayout() {
     return Array.from(windows.values()).map(w => ({ ...w }));
@@ -99,6 +124,11 @@ function createWM(opts) {
     }
 
     suppressEmit = false;
+    if (!restoring) {
+      // server echoes of our own layout match `last` and keep history intact
+      const snap = JSON.stringify(getLayout());
+      if (snap !== last) { past.length = 0; future.length = 0; last = snap; }
+    }
   }
 
   function normalizeWindow(w) {
@@ -210,7 +240,7 @@ function createWM(opts) {
 
   function drawBorder(win, rec, ts) {
     if (!win) return;
-    const o = win.opts || {};
+    const o = effOpts(win);
     const cell = Math.max(2, Number(o.border_cell) || 4);
     const cols = Math.max(3, Math.ceil(win.w / cell)), rows = Math.max(3, Math.ceil(win.h / cell));
     const cv = rec.bcanvas;
@@ -243,8 +273,49 @@ function createWM(opts) {
     for (let y = rows - 2; y >= 1; y--) put(0, y);
   }
 
+  const BOX_GLYPHS = { single: '┌┐└┘─│', rounded: '╭╮╰╯─│', double: '╔╗╚╝═║', heavy: '┏┓┗┛━┃' };
+  let cellCache = null;
+  function cellSize() {
+    if (!cellCache) {
+      const s = document.createElement('span');
+      s.style.cssText = 'position:absolute;visibility:hidden;white-space:pre;font-size:13px;font-family:var(--wm-mono)';
+      s.textContent = 'M'.repeat(20);
+      document.body.appendChild(s);
+      const r = s.getBoundingClientRect();
+      s.remove();
+      cellCache = { w: r.width / 20, h: Math.round(r.height) };
+    }
+    return cellCache;
+  }
+  // box-drawing windows size in whole character cells so the frame tiles cleanly
+  function snapSize(win, axis, v) {
+    if (effOpts(win).border_mode !== 'box') return snap(v);
+    const c = cellSize(), u = axis === 'w' ? c.w : c.h;
+    return Math.round(Math.max(3, Math.round(v / u)) * u * 100) / 100;
+  }
+  function drawBox(win, rec, on) {
+    const root = rec.root;
+    root.classList.toggle('wm-box', on);
+    if (!on) {
+      root.style.padding = '';
+      if (rec.box) { rec.box.remove(); rec.box = null; }
+      return;
+    }
+    const o = effOpts(win), c = cellSize();
+    const cols = Math.max(3, Math.round(win.w / c.w)), rows = Math.max(3, Math.round(win.h / c.h));
+    const g = BOX_GLYPHS[o.box_style] || BOX_GLYPHS.single, inner = cols - 2;
+    let t = (g[4] + ' ' + (win.title || '') + ' ').slice(0, inner);
+    const lines = [g[0] + t + g[4].repeat(inner - t.length) + g[1]];
+    for (let i = 1; i < rows - 1; i++) lines.push(g[5] + ' '.repeat(inner) + g[5]);
+    lines.push(g[2] + g[4].repeat(inner) + g[3]);
+    if (!rec.box) { rec.box = document.createElement('pre'); rec.box.className = 'wm-box-text'; root.appendChild(rec.box); }
+    rec.box.style.cssText = 'color:' + (o.border_color || '') + ';line-height:' + c.h + 'px;width:' + (cols * c.w) + 'px;height:' + (rows * c.h) + 'px';
+    rec.box.textContent = lines.join('\n');
+    root.style.padding = c.h + 'px ' + c.w + 'px';
+  }
+
   function applyBorder(win, rec) {
-    const o = win.opts || {};
+    const o = effOpts(win);
     const col = o.border_color || '';
     const col2 = o.border_color2 || '#7ef7c6';
     const stops = Array.isArray(o.border_stops) && o.border_stops.length >= 2
@@ -284,6 +355,7 @@ function createWM(opts) {
       rec.bcanvas.remove();
       rec.bcanvas = null;
     }
+    drawBox(win, rec, o.border_mode === 'box');
   }
 
   function applyGeometry(win, rec) {
@@ -294,6 +366,7 @@ function createWM(opts) {
     if (win.kind !== 'topmost') rec.root.style.zIndex = String(win.z);
     const shouldHideWindowInOverlay = !win.visible && !editable;
     rec.root.style.display = shouldHideWindowInOverlay ? 'none' : '';
+    rec.root.style.opacity = (editable && win.visible === false) ? '0.35' : '';
     applyBorder(win, rec);
   }
 
@@ -338,7 +411,7 @@ function createWM(opts) {
 
   function applyWindowOpts(win, rec) {
     if (opts.onWindowOptsChanged) opts.onWindowOptsChanged(win, rec);
-    const values = win.opts || {};
+    const values = effOpts(win);
     const bgStops = Array.isArray(values.bg_color_stops) ? values.bg_color_stops : [];
     rec.body.style.backgroundImage = bgStops.length >= 2 ? `linear-gradient(135deg, ${bgStops.join(', ')})` : '';
     if (values.bg_color) rec.body.style.backgroundColor = values.bg_color;
@@ -383,7 +456,7 @@ function createWM(opts) {
     if (editable) {
       wireDrag(win, rec, header);
       wireResize(win, rec);
-      root.addEventListener('mousedown', () => { bringToFront(win.id); select(win.id); });
+      root.addEventListener('mousedown', () => { if (!(win.opts && win.opts.locked)) select(win.id); });
     }
 
     rec.handle = renderBody(win, body, rec);
@@ -394,12 +467,11 @@ function createWM(opts) {
   function wireDrag(win, rec, handle) {
     let dragging = false, startX = 0, startY = 0, origX = 0, origY = 0;
     handle.addEventListener('mousedown', (e) => {
-      if (e.target.classList.contains('wm-close')) return;
+      if (e.target.classList.contains('wm-close') || (win.opts && win.opts.locked)) return;
       dragging = true;
       startX = e.clientX; startY = e.clientY;
       origX = win.x; origY = win.y;
       e.preventDefault();
-      bringToFront(win.id);
     });
     window.addEventListener('mousemove', (e) => {
       if (!dragging) return;
@@ -421,17 +493,17 @@ function createWM(opts) {
     rec.root.appendChild(handle);
     let resizing = false, startX = 0, startY = 0, origW = 0, origH = 0;
     handle.addEventListener('mousedown', (e) => {
+      if (win.opts && win.opts.locked) return;
       resizing = true;
       startX = e.clientX; startY = e.clientY;
       origW = win.w; origH = win.h;
       e.preventDefault();
       e.stopPropagation();
-      bringToFront(win.id);
     });
     window.addEventListener('mousemove', (e) => {
       if (!resizing) return;
-      win.w = snap(Math.max(MIN_W, origW + (e.clientX - startX)));
-      win.h = snap(Math.max(MIN_H, origH + (e.clientY - startY)));
+      win.w = snapSize(win, 'w', Math.max(MIN_W, origW + (e.clientX - startX)));
+      win.h = snapSize(win, 'h', Math.max(MIN_H, origH + (e.clientY - startY)));
       clampToStage(win);
       applyGeometry(win, rec);
     });
@@ -461,5 +533,9 @@ function createWM(opts) {
     setLayout, getLayout, addWindow, removeWindow, updateWindow,
     showPopup, getWindow, forEachWindow, getBodyEl, getRootEl, getHandle,
     bringToFront, select, setGridSize, currentGrid,
+    undo, redo, canUndo: () => past.length > 0, canRedo: () => future.length > 0,
+    getSelected: () => selectedId,
+    setTheme, getTheme: () => theme,
+    snapSize: (id, axis, v) => { const w = windows.get(id); return w ? snapSize(w, axis, v) : v; },
   };
 }

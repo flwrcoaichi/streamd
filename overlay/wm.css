@@ -139,3 +139,12 @@
 .pngtuber-frame { max-width: 100%; max-height: 100%; transition: opacity 0.12s ease; }
 .pngtuber-frame.speaking { animation: wmBob 0.42s ease-in-out infinite; }
 @keyframes wmBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+
+/* no glow */
+.key-panel-key.active { box-shadow: none !important; }
+[style*="0 0 3px currentColor"] { text-shadow: none !important; }
+
+/* box borders */
+.wm-box { border: 0; }
+.wm-box > .wm-header { display: none; }
+.wm-box-text { position: absolute; left: 0; top: 0; margin: 0; white-space: pre; overflow: hidden; pointer-events: none; z-index: 5; font-size: 13px; font-family: var(--wm-mono); }

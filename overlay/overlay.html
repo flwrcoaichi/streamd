@@ -80,11 +80,13 @@ body { width: 1440px; height: 1080px; }
     const t = msg.type;
     if (t === 'init') {
       const s = msg.state || {};
+      wm.setTheme(((s.wm_layouts || {}).__theme || [])[0]);
       applyLayoutFromServer((s.wm_layouts && s.wm_layouts[layoutName]) || (layoutName === 'main' ? s.wm_layout : null));
       if (s.music) broadcastToAllPanels('music', s.music);
       if (s.stats) broadcastToAllPanels('stats', s.stats);
       if (s.status) broadcastToAllPanels('status', { value: s.status });
       if (s.scene) broadcastToAllPanels('scene', { value: s.scene });
+      if (s.pointer) broadcastToAllPanels('pointer', s.pointer);
       if (s.extra !== undefined) broadcastToAllPanels('extra', { value: s.extra });
       if (s.pngtuber) broadcastToAllPanels('pngtuber', s.pngtuber);
       if (s.words) broadcastToAllPanels('words', s.words);
@@ -98,12 +100,14 @@ body { width: 1440px; height: 1080px; }
       if (s.tts) broadcastToAllPanels('tts_state', s.tts);
       return;
     }
+    if (t === 'wm_layout' && msg.name === '__theme') { wm.setTheme((msg.layout || [])[0]); return; }
     if (t === 'wm_layout') { if ((msg.name || 'main') === layoutName) applyLayoutFromServer(msg.layout); return; }
     if (t === 'music') { broadcastToAllPanels('music', msg); return; }
     if (t === 'music_video') { broadcastToAllPanels('music_video', msg); return; }
     if (t === 'stats') { broadcastToAllPanels('stats', msg); return; }
     if (t === 'status') { broadcastToAllPanels('status', { value: msg.value }); return; }
     if (t === 'scene') { broadcastToAllPanels('scene', { value: msg.value }); return; }
+    if (t === 'pointer') { broadcastToAllPanels('pointer', msg.pointer); return; }
     if (t === 'message') { broadcastToAllPanels('message', { value: msg.value }); return; }
     if (t === 'extra') { broadcastToAllPanels('extra', { value: msg.value }); return; }
     if (t === 'chat') { broadcastToAllPanels('chat', msg); return; }

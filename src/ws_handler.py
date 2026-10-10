@@ -1,5 +1,7 @@
 import asyncio
+import ctypes
 import json
+import os
 import re
 import traceback
 
@@ -276,8 +278,19 @@ def run_key_panel_listener() -> None:
         return
 
     def _active_key_names() -> set[str]:
-        panel = normalize_key_panel_config(state.data.get("key_panel", {}))
-        return {normalize_key_name(item.get("key", "")) for item in panel.get("keys", []) if normalize_key_name(item.get("key", ""))}
+        # track every key used by ANY key_panel window in ANY layout (survives restarts)
+        configs = [state.data.get("key_panel", {})]
+        for layout in (state.data.get("wm_layouts") or {}).values():
+            for w in layout or []:
+                if isinstance(w, dict) and w.get("panel") == "key_panel":
+                    configs.append(w.get("opts") or {})
+        names: set[str] = set()
+        for cfg in configs:
+            for item in (cfg.get("keys") or []) if isinstance(cfg, dict) else []:
+                n = normalize_key_name(item.get("key", "") if isinstance(item, dict) else item)
+                if n:
+                    names.add(n)
+        return names
 
     def handle_key(key, pressed: bool) -> None:
         name = str(key)
@@ -331,6 +344,81 @@ def load_notepads() -> dict:
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
+
+
+async def run_global_pointer_listener() -> None:
+    if os.name != "nt":
+        log.warning("[pointer] global cursor tracking is only available on Windows")
+        return
+
+    class Point(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    get_cursor_pos = user32.GetCursorPos
+    get_cursor_pos.argtypes = [ctypes.POINTER(Point)]
+    get_cursor_pos.restype = ctypes.c_bool
+    get_system_metrics = user32.GetSystemMetrics
+    get_system_metrics.argtypes = [ctypes.c_int]
+    get_system_metrics.restype = ctypes.c_int
+    get_async_key_state = user32.GetAsyncKeyState
+    get_async_key_state.argtypes = [ctypes.c_int]
+    get_async_key_state.restype = ctypes.c_short
+
+    origin_x = get_system_metrics(76)
+    origin_y = get_system_metrics(77)
+    width = get_system_metrics(78)
+    height = get_system_metrics(79)
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"[pointer] invalid virtual desktop size: {width}x{height}")
+
+    button_keys = ((0x01, 1, 0), (0x04, 2, 1), (0x02, 4, 2), (0x05, 8, 3), (0x06, 16, 4))
+    last_buttons = 0
+    last_send = 0.0
+    log.info("[pointer] tracking Windows virtual desktop (%d×%d at %d,%d)", width, height, origin_x, origin_y)
+
+    while True:
+        point = Point()
+        if not get_cursor_pos(ctypes.byref(point)):
+            error = ctypes.get_last_error()
+            log.error("[pointer] GetCursorPos failed: %s", ctypes.WinError(error))
+            await asyncio.sleep(1)
+            continue
+
+        buttons = 0
+        changed_button = -1
+        for virtual_key, mask, button in button_keys:
+            pressed = bool(get_async_key_state(virtual_key) & 0x8000)
+            if pressed:
+                buttons |= mask
+            if pressed and not (last_buttons & mask):
+                changed_button = button
+            elif not pressed and last_buttons & mask:
+                changed_button = button
+
+        x = min(1.0, max(0.0, (point.x - origin_x) / max(1, width - 1)))
+        y = min(1.0, max(0.0, (point.y - origin_y) / max(1, height - 1)))
+        now = asyncio.get_running_loop().time()
+        buttons_changed = buttons != last_buttons
+        if buttons_changed or now - last_send >= 1 / 30:
+            action = ("down" if buttons & ~last_buttons else "up") if buttons_changed else "move"
+            pointer = {
+                "x": x,
+                "y": y,
+                "screen_x": point.x,
+                "screen_y": point.y,
+                "screen_width": width,
+                "screen_height": height,
+                "buttons": buttons,
+                "button": changed_button,
+                "action": action,
+                "pointer_type": "mouse",
+            }
+            state.data["pointer"] = pointer
+            await broadcast({"type": "pointer", "pointer": pointer})
+            last_send = now
+        last_buttons = buttons
+        await asyncio.sleep(1 / 120)
 
 
 async def ws_handler(ws) -> None:

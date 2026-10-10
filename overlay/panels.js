@@ -8,6 +8,25 @@ const Panels = (() => {
     return d.innerHTML;
   }
 
+  // terminal-style reveal: characters appear one at a time, no fades
+  function typeIn(root, cps) {
+    if (!cps) return;
+    const nodes = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    const full = nodes.map(n => n.nodeValue);
+    const total = full.reduce((a, s) => a + s.length, 0);
+    nodes.forEach(n => { n.nodeValue = ''; });
+    clearInterval(root._typeTimer);
+    let shown = 0;
+    root._typeTimer = setInterval(() => {
+      shown = Math.min(total, shown + 1);
+      let left = shown;
+      nodes.forEach((n, i) => { n.nodeValue = full[i].slice(0, Math.max(0, left)); left -= full[i].length; });
+      if (shown >= total) clearInterval(root._typeTimer);
+    }, 1000 / cps);
+  }
+
   function applyTextOpts(bodyEl, opts) {
     opts = opts || {};
     bodyEl.style.color = opts.text_color || '';
@@ -327,15 +346,17 @@ const Panels = (() => {
       body.style.boxSizing = 'border-box';
       const wrap = $create('div', 'key-panel-row');
       body.appendChild(wrap);
-      return { body, wrap };
+      return { body, wrap, win, active: [] };
     },
+    // the server only says WHICH keys are down; layout/colors always come from this window's own opts
     onState(h, key, msg) {
       if (key !== 'key_panel') return;
-      const cfg = normalizeKeyPanelConfig(msg);
-      renderKeyPanel(h, cfg);
+      h.active = (msg && msg.active_keys) || [];
+      renderKeyPanel(h, { ...normalizeKeyPanelConfig(h.win && h.win.opts), active_keys: h.active });
     },
     applyOpts(h, win) {
-      renderKeyPanel(h, normalizeKeyPanelConfig(win && win.opts));
+      h.win = win;
+      renderKeyPanel(h, { ...normalizeKeyPanelConfig(win && win.opts), active_keys: h.active || [] });
     },
   };
 
@@ -346,18 +367,20 @@ const Panels = (() => {
     const itemShape = panel.shape || 'round';
     const keyItems = panel.keys || [];
     const positioned = keyItems.some(item => Number.isFinite(Number(item.x)) || Number.isFinite(Number(item.y)));
-    const glowEnabled = panel.glow !== false;
-    const useBorder = panel.border !== false && (!itemShape || itemShape !== 'none');
     h.wrap.style.position = positioned ? 'relative' : '';
     h.wrap.style.display = positioned ? 'block' : 'flex';
     h.wrap.style.alignItems = positioned ? '' : 'center';
     h.wrap.style.justifyContent = positioned ? '' : 'center';
     h.wrap.style.width = '100%';
     h.wrap.style.height = '100%';
-    for (const [index, item] of keyItems.entries()) {
+    const keySize = panel.size || 48;
+    const gap = Math.max(2, panel.gap || 8);
+    // later keys draw on top of earlier ones (the editor's "move up a layer" reorders this array)
+    keyItems.forEach((item, index) => {
       const keyName = normalizeKeyLabel(item.key || item.label || '');
-      if (!keyName) continue;
-      const square = $create('div', `key-panel-key key-panel-${item.shape || itemShape}`);
+      if (!keyName) return;
+      const shape = item.shape || itemShape;
+      const square = $create('div', `key-panel-key key-panel-${shape}`);
       const label = $create('span');
       label.textContent = keyPanelDisplayLabel(item, keyName);
       square.appendChild(label);
@@ -368,31 +391,33 @@ const Panels = (() => {
       const activeStops = item.color_stops || panel.active_color_stops;
       const inactiveStops = panel.inactive_color_stops;
       const borderStops = item.border_color_stops || panel.border_color_stops;
-      const keySize = panel.size || 48;
-      const gap = Math.max(2, panel.gap || 8);
-      const borderWidth = Number.isFinite(Number(item.border_width ?? panel.border_width)) ? Number(item.border_width ?? panel.border_width) : (panel.border_width || 1);
+      const hasBorder = !(panel.border === false || item.border === false);
+      const bw = Number(item.border_width ?? panel.border_width);
+      const borderWidth = Number.isFinite(bw) ? Math.max(0, bw) : 1;
       const borderColor = item.border_color || panel.border_color || 'rgba(255,255,255,0.18)';
-      const radiusValue = item.corner_radius ?? panel.corner_radius ?? (
-        (item.shape || itemShape || 'round') === 'square' ? '0px' :
-        (item.shape || itemShape || 'round') === 'diamond' ? '8px' :
-        ((item.shape || itemShape || 'round') === 'pill' || (item.shape || itemShape || 'round') === 'round') ? '999px' : '0px'
-      );
+      let radius = item.corner_radius ?? panel.corner_radius ??
+        (shape === 'square' ? '0px' : shape === 'diamond' ? '8px' : '999px');
+      if (typeof radius === 'number') radius = `${radius}px`;
+      const kw = Number(item.w) || keySize, kh = Number(item.h) || keySize;
       square.style.setProperty('--key-color', keyColor);
       square.style.setProperty('--key-bg', inactiveColor);
       square.style.setProperty('--key-text', textColor);
-      square.style.width = `${keySize}px`;
-      square.style.height = `${keySize}px`;
-      square.style.border = (panel.border === false || item.border === false) ? 'none' : `${Math.max(0, borderWidth)}px solid ${borderColor}`;
-      square.style.borderColor = active ? keyColor : borderColor;
-      square.style.borderImage = borderStops && borderStops.length >= 2 && panel.border !== false && item.border !== false
-        ? `linear-gradient(135deg, ${borderStops.join(', ')}) 1`
-        : 'none';
+      square.style.width = `${kw}px`;
+      square.style.height = `${kh}px`;
+      square.style.border = hasBorder ? `${borderWidth}px solid ${borderColor}` : 'none';
+      if (hasBorder) square.style.borderColor = active ? keyColor : borderColor;
+      square.style.borderImage = hasBorder && borderStops && borderStops.length >= 2
+        ? `linear-gradient(135deg, ${borderStops.join(', ')}) 1` : 'none';
       square.style.background = active
         ? (activeStops && activeStops.length >= 2 ? `linear-gradient(135deg, ${activeStops.join(', ')})` : keyColor)
         : (inactiveStops && inactiveStops.length >= 2 ? `linear-gradient(135deg, ${inactiveStops.join(', ')})` : inactiveColor);
       square.style.color = active ? '#08120d' : textColor;
-      square.style.borderRadius = radiusValue;
-      square.style.boxShadow = glowEnabled && active ? '0 0 12px color-mix(in srgb, var(--key-color, #7ef7c6) 60%, transparent), inset 0 0 0 1px rgba(0,0,0,0.2)' : 'none';
+      square.style.borderRadius = radius;
+      square.style.boxShadow = 'none';
+      const rot = (((Number(item.rotate) || 0) % 360) + 360) % 360;
+      const tf = [shape === 'diamond' ? 'rotate(45deg)' : '', rot ? `rotate(${rot}deg)` : '',
+        active ? 'translateY(1px) scale(0.97)' : ''].filter(Boolean).join(' ');
+      if (tf) square.style.transform = tf;
       if (positioned) {
         const x = Number.isFinite(Number(item.x)) ? Number(item.x) : index * (keySize + gap);
         const y = Number.isFinite(Number(item.y)) ? Number(item.y) : 0;
@@ -406,10 +431,9 @@ const Panels = (() => {
       }
       if (active) square.classList.add('active');
       h.wrap.appendChild(square);
-    }
+    });
   }
 
- 
   const CHAT_MAX = 40;
   const chat = {
     mount(body, win, ctx) {
@@ -943,27 +967,6 @@ const Panels = (() => {
     if (status.includes('playing:') || status.includes('playing') || status.includes('just chatting') || status.includes('live')) return 'playing';
     return 'default';
   }
-  const TYPEWRITER_LINES = [
-'> connecting to relay... ok',
-'> subscribed: chat, follows, redeems',
-'[info] frame budget: 3.2ms / 16.6ms',
-'[info] compositor: 3 layers active',
-'GET /api/state 200 4ms',
-'GET /api/state 200 3ms',
-'> heartbeat ok',
-'[warn] retrying upstream in 2s',
-'> reconnected',
-'POST /webhook/redeem 200 11ms',
-'[info] gc: minor pause 0.4ms',
-'> cache hit ratio: 0.94',
-'[info] scene switch -> just chatting',
-'> tick 60fps stable',
-'GET /api/stats 200 2ms',
-'[info] audio meter: -18dB',
-'> idle',
-'> awaiting input_',
-  ];
-
   function _escapeSpacerHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -984,7 +987,6 @@ const Panels = (() => {
     dna: '#7dffb0',
     pipes: '#ff9f2f',
     life: '#4ade80',
-    typewriter: '#4ade80',
     waveform: '#00e0ff',
     metaballs: '#ff4fa3',
     tunnel: '#00d4ff',
@@ -993,15 +995,35 @@ const Panels = (() => {
     scroller: '#4ade80',
     voronoi: '#7d6bff',
     wobble: '#ff6bd6',
-    lens: '#ffe27a',
+    htop: '#4ade80',
     floorgrid: '#39ff9e',
     bump: '#8f9dff',
     wireframe: '#5ef2ff',
     trails: '#ffd166',
     twister: '#ff61d8',
     fluid: '#5ec8ff',
-    torus: '#7ef7c6',
+    cursor: '#5ec8ff',
+    'cursor-ripple': '#5ec8ff',
+    'cursor-particles': '#7df9ff',
+    'cursor-radar': '#5ef2ff',
+    'physics-demo': '#71d6ff',
+    'bouncing-ball': '#ffbb55',
+    'defrag-map': '#5ef2ff',
+    'chat-interactive': '#ff73c8',
+    'card-cascade': '#bb9cff',
+    'pointer-debug': '#5ec8ff',
   };
+
+  function normalizeSpacerKind(win) {
+    const opts = (win && win.opts) || {};
+    if (opts.spacer_kind === 'typewriter') return 'bootlog';
+    if (opts.spacer_kind === 'torus') {
+      opts.spacer_wireframe_shape = 'torus';
+      return 'wireframe';
+    }
+    if (opts.spacer_kind === 'lens') return 'htop';
+    return opts.spacer_kind || 'bootlog';
+  }
 
  
  
@@ -1040,6 +1062,20 @@ const Panels = (() => {
       ],
     },
   };
+  const torusVerts = [], torusEdges = [];
+  const torusRings = 18, torusSides = 10;
+  for (let i = 0; i < torusRings; i++) {
+    const u = (i / torusRings) * Math.PI * 2;
+    for (let j = 0; j < torusSides; j++) {
+      const v = (j / torusSides) * Math.PI * 2;
+      const radius = 1 + 0.42 * Math.cos(v);
+      torusVerts.push([radius * Math.cos(u), radius * Math.sin(u), 0.42 * Math.sin(v)]);
+      const index = i * torusSides + j;
+      torusEdges.push([index, i * torusSides + (j + 1) % torusSides]);
+      torusEdges.push([index, ((i + 1) % torusRings) * torusSides + j]);
+    }
+  }
+  WIREFRAME_SHAPES.torus = { verts: torusVerts, edges: torusEdges };
 
   function _hexToRgb(hex) {
     let h = (hex || '').replace('#', '').trim();
@@ -1061,12 +1097,493 @@ const Panels = (() => {
     return (stops[0] || opts.spacer_color) || SPACER_COLOR_DEFAULTS[h.kind] || '#00ff66';
   }
 
+  function _spacerBackground(h) {
+    const opts = (h.win && h.win.opts) || {};
+    return opts.spacer_bg_color || '#000000';
+  }
+
   function _spacerGradient(ctx, h, width) {
     const stops = (h.win && h.win.opts && h.win.opts.spacer_color_stops) || [];
     if (stops.length < 2) return _spacerColor(h);
     const gradient = ctx.createLinearGradient(0, 0, width, 0);
     stops.slice(0, 5).forEach((color, index, colors) => gradient.addColorStop(index / (colors.length - 1), color));
     return gradient;
+  }
+
+  function _spacerRgbAt(h, x, width) {
+    const cache = h.spacerRgbCache;
+    if (cache && cache.has(x)) return cache.get(x);
+    const stops = (h.win && h.win.opts && h.win.opts.spacer_color_stops) || [];
+    let rgb;
+    if (stops.length < 2) {
+      rgb = _hexToRgb(_spacerColor(h));
+    } else {
+      const position = Math.max(0, Math.min(1, x / Math.max(1, width))) * (Math.min(stops.length, 5) - 1);
+      const index = Math.min(Math.floor(position), Math.min(stops.length, 5) - 2);
+      const amount = position - index;
+      const start = _hexToRgb(stops[index]);
+      const end = _hexToRgb(stops[index + 1]);
+      rgb = {
+        r: Math.round(start.r + (end.r - start.r) * amount),
+        g: Math.round(start.g + (end.g - start.g) * amount),
+        b: Math.round(start.b + (end.b - start.b) * amount),
+      };
+    }
+    if (cache) cache.set(x, rgb);
+    return rgb;
+  }
+
+  function _spacerRgb(h, x, width, factor = 1) {
+    const { r, g, b } = _spacerRgbAt(h, x, width);
+    const scale = value => Math.max(0, Math.min(255, Math.round(value * factor)));
+    return `rgb(${scale(r)},${scale(g)},${scale(b)})`;
+  }
+
+  function _spacerRgba(h, x, width, alpha) {
+    const { r, g, b } = _spacerRgbAt(h, x, width);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function _isCursorSpacer(kind) {
+    return ['cursor', 'cursor-ripple', 'cursor-particles', 'cursor-radar'].includes(kind);
+  }
+
+  function _cursorSetting(h, name, fallback, min, max) {
+    const value = Number(h.win && h.win.opts && h.win.opts[name]);
+    return Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback;
+  }
+
+  function _cursorRgba(color, alpha) {
+    const { r, g, b } = _hexToRgb(color);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function _cursorStyle(h) {
+    const opts = (h.win && h.win.opts) || {};
+    return {
+      spacing: _cursorSetting(h, 'spacer_cursor_spacing', 28, 10, 80),
+      dotSize: _cursorSetting(h, 'spacer_cursor_dot_size', 2, 1, 8),
+      spacingOpacity: _cursorSetting(h, 'spacer_cursor_spacing_opacity', 50, 0, 100) / 100,
+      markerSize: _cursorSetting(h, 'spacer_cursor_marker_size', 12, 4, 32),
+      spacingColor: opts.spacer_cursor_spacing_color || '#31404a',
+      accentColor: opts.spacer_cursor_accent_color || _spacerColor(h),
+      radius: _cursorSetting(h, 'spacer_cursor_radius', 180, 40, 500),
+      strength: _cursorSetting(h, 'spacer_cursor_strength', 70, 0, 100) / 100,
+      speed: _cursorSetting(h, 'spacer_cursor_speed', 100, 0, 200) / 100,
+      marker: opts.spacer_cursor_marker !== false,
+    };
+  }
+
+  function _cursorGridSpacing(style, w, h) {
+    const pointBudget = 7000;
+    return Math.max(style.spacing, Math.sqrt((w * h) / pointBudget));
+  }
+
+  function _drawCursorMarker(ctx, cursor, style, w, h) {
+    if (!style.marker || !cursor.hasPosition) return;
+    const x = cursor.x * w, y = cursor.y * h;
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = '#071014';
+    ctx.beginPath(); ctx.arc(x, y, style.markerSize, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = style.accentColor;
+    ctx.beginPath(); ctx.arc(x, y, style.markerSize, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#f8fafc';
+    ctx.beginPath(); ctx.arc(x, y, Math.max(2, style.markerSize * 0.28), 0, Math.PI * 2); ctx.fill();
+  }
+
+  function _drawCursorRipples(ctx, cursor, style, w, h, limit) {
+    cursor.ripples = cursor.ripples.filter(ripple => {
+      ripple.radius += 3 * Math.max(0.2, style.speed);
+      ripple.life -= 0.018 * Math.max(0.2, style.speed);
+      ctx.strokeStyle = _cursorRgba(style.accentColor, Math.max(0, ripple.life) * style.strength);
+      ctx.lineWidth = Math.max(1, style.dotSize);
+      ctx.beginPath();
+      ctx.ellipse(ripple.x * w, ripple.y * h, ripple.radius, ripple.radius * 0.72, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      return ripple.life > 0 && ripple.radius < limit;
+    });
+  }
+
+  function _drawCursorField(ctx, h, cursor, style, w, height) {
+    const spacing = _cursorGridSpacing(style, w, height);
+    const cols = Math.max(1, Math.ceil(w / spacing));
+    const rows = Math.max(1, Math.ceil(height / spacing));
+    const time = h.t * style.speed;
+    const points = Array.from({ length: rows + 1 }, (_, row) =>
+      Array.from({ length: cols + 1 }, (_, column) => {
+        const bx = column / cols * w, by = row / rows * height;
+        const dx = bx - cursor.x * w, dy = by - cursor.y * height;
+        const distance = Math.hypot(dx, dy);
+        const falloff = Math.exp(-distance / style.radius);
+        const push = falloff * style.radius * 0.28 * style.strength;
+        const wave = Math.sin(distance / Math.max(8, spacing * 0.75) - time * 0.12) *
+          falloff * style.radius * 0.12 * style.strength;
+        const amount = distance > 0 ? (push + wave) / distance : 0;
+        return { x: bx + dx * amount, y: by + dy * amount };
+      })
+    );
+    ctx.strokeStyle = _cursorRgba(style.spacingColor, 0.48 * style.spacingOpacity);
+    ctx.lineWidth = Math.max(0.5, style.dotSize * 0.45);
+    for (let row = 0; row <= rows; row++) {
+      for (let column = 0; column <= cols; column++) {
+        const point = points[row][column];
+        const colorX = column / cols * w;
+        ctx.fillStyle = _spacerRgb(h, colorX, w, 0.75 + 0.25 * Math.sin(time * 0.025 + row * 0.3));
+        ctx.beginPath(); ctx.arc(point.x, point.y, style.dotSize, 0, Math.PI * 2); ctx.fill();
+        if (column < cols) {
+          const next = points[row][column + 1];
+          ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineTo(next.x, next.y); ctx.stroke();
+        }
+        if (row < rows) {
+          const next = points[row + 1][column];
+          ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineTo(next.x, next.y); ctx.stroke();
+        }
+      }
+    }
+    _drawCursorRipples(ctx, cursor, style, w, height, style.radius * 3);
+    _drawCursorMarker(ctx, cursor, style, w, height);
+  }
+
+  function _drawCursorRipple(ctx, h, cursor, style, w, height) {
+    const spacing = _cursorGridSpacing(style, w, height);
+    const x = cursor.x * w, y = cursor.y * height;
+    const radius = Math.min(style.radius, Math.max(w, height));
+    const time = h.t * style.speed;
+    ctx.strokeStyle = _cursorRgba(style.spacingColor, 0.3 * style.spacingOpacity);
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx <= w; gx += spacing) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, height); ctx.stroke();
+    }
+    for (let gy = 0; gy <= height; gy += spacing) {
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(w, gy); ctx.stroke();
+    }
+    for (let gy = 0; gy <= height; gy += spacing) {
+      for (let gx = 0; gx <= w; gx += spacing) {
+        const distance = Math.hypot(gx - x, gy - y);
+        const wave = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(distance / spacing - time * 0.12));
+        const strength = Math.exp(-distance / radius) * style.strength;
+        ctx.fillStyle = _spacerRgba(h, gx, w, Math.min(1, 0.22 + strength * wave));
+        ctx.beginPath(); ctx.arc(gx, gy, style.dotSize * (1 + strength * 1.5), 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    const ringPhase = (time * 2) % style.spacing;
+    for (let ring = ringPhase; ring < radius; ring += style.spacing) {
+      ctx.strokeStyle = _cursorRgba(style.accentColor, (1 - ring / radius) * style.strength * 0.6);
+      ctx.lineWidth = Math.max(1, style.dotSize * 0.75);
+      ctx.beginPath(); ctx.arc(x, y, ring, 0, Math.PI * 2); ctx.stroke();
+    }
+    _drawCursorRipples(ctx, cursor, style, w, height, radius * 2.5);
+    _drawCursorMarker(ctx, cursor, style, w, height);
+  }
+
+  function _drawCursorParticles(ctx, h, cursor, style, w, height) {
+    const spacing = style.spacing;
+    const gridSpacing = _cursorGridSpacing(style, w, height);
+    const targetCount = Math.min(900, Math.max(24, Math.floor((w * height) / (spacing * spacing * 3))));
+    ctx.fillStyle = _cursorRgba(style.spacingColor, 0.24 * style.spacingOpacity);
+    for (let gy = gridSpacing / 2; gy < height; gy += gridSpacing) {
+      for (let gx = gridSpacing / 2; gx < w; gx += gridSpacing) {
+        ctx.beginPath(); ctx.arc(gx, gy, Math.max(0.5, style.dotSize * 0.45), 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    while (cursor.particles.length < targetCount) {
+      cursor.particles.push({
+        x: Math.random() * w, y: Math.random() * height,
+        vx: (Math.random() - 0.5) * 0.8, vy: (Math.random() - 0.5) * 0.8,
+        px: null, py: null,
+      });
+    }
+    cursor.particles.length = targetCount;
+    cursor.particles.forEach(particle => {
+      if (cursor.hasPosition) {
+        const dx = cursor.x * w - particle.x, dy = cursor.y * height - particle.y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > 0 && distance < style.radius) {
+          const force = (1 - distance / style.radius) * style.strength * style.speed * 0.07;
+          particle.vx += dx / distance * force;
+          particle.vy += dy / distance * force;
+        }
+      }
+      particle.vx = particle.vx * 0.985 + (Math.random() - 0.5) * 0.025 * style.speed;
+      particle.vy = particle.vy * 0.985 + (Math.random() - 0.5) * 0.025 * style.speed;
+      const maxSpeed = 1 + style.speed * 2;
+      const velocity = Math.hypot(particle.vx, particle.vy);
+      if (velocity > maxSpeed) {
+        particle.vx = particle.vx / velocity * maxSpeed;
+        particle.vy = particle.vy / velocity * maxSpeed;
+      }
+      particle.x = (particle.x + particle.vx + w) % w;
+      particle.y = (particle.y + particle.vy + height) % height;
+      if (particle.px !== null) {
+        ctx.strokeStyle = _spacerRgba(h, particle.x, w, 0.2 + style.strength * 0.4);
+        ctx.lineWidth = Math.max(0.5, style.dotSize * 0.55);
+        ctx.beginPath(); ctx.moveTo(particle.px, particle.py); ctx.lineTo(particle.x, particle.y); ctx.stroke();
+      }
+      ctx.fillStyle = _spacerRgb(h, particle.x, w);
+      ctx.beginPath(); ctx.arc(particle.x, particle.y, style.dotSize, 0, Math.PI * 2); ctx.fill();
+      particle.px = particle.x;
+      particle.py = particle.y;
+    });
+    if (cursor.hasPosition && style.strength > 0) {
+      ctx.strokeStyle = _cursorRgba(style.accentColor, style.strength * 0.25);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(cursor.x * w, cursor.y * height, style.radius, 0, Math.PI * 2); ctx.stroke();
+    }
+    _drawCursorMarker(ctx, cursor, style, w, height);
+  }
+
+  function _drawCursorRadar(ctx, h, cursor, style, w, height) {
+    const radius = Math.min(style.radius, Math.max(w, height));
+    const gridSpacing = _cursorGridSpacing(style, w, height);
+    const x = cursor.x * w, y = cursor.y * height;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(0, 0, w, height); ctx.clip();
+    ctx.strokeStyle = _cursorRgba(style.spacingColor, 0.52 * style.spacingOpacity);
+    ctx.lineWidth = 1;
+    for (let ring = style.spacing; ring <= radius; ring += style.spacing) {
+      ctx.beginPath(); ctx.arc(x, y, ring, 0, Math.PI * 2); ctx.stroke();
+    }
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(angle) * radius, y + Math.sin(angle) * radius);
+      ctx.stroke();
+    }
+    cursor.sweepAngle += 0.025 * style.speed;
+    const sweepWidth = 0.65;
+    ctx.fillStyle = _cursorRgba(style.accentColor, style.strength * 0.18);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, radius, cursor.sweepAngle - sweepWidth, cursor.sweepAngle);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = _cursorRgba(style.accentColor, style.strength);
+    ctx.lineWidth = Math.max(1, style.dotSize);
+    ctx.beginPath(); ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(cursor.sweepAngle) * radius, y + Math.sin(cursor.sweepAngle) * radius);
+    ctx.stroke();
+    ctx.fillStyle = _spacerGradient(ctx, h, w);
+    for (let gy = gridSpacing / 2; gy < height; gy += gridSpacing) {
+      for (let gx = gridSpacing / 2; gx < w; gx += gridSpacing) {
+        const dx = gx - x, dy = gy - y;
+        const distance = Math.hypot(dx, dy);
+        if (distance > radius) continue;
+        const angle = Math.atan2(dy, dx);
+        const delta = (cursor.sweepAngle - angle + Math.PI * 2) % (Math.PI * 2);
+        if (delta < sweepWidth) {
+          ctx.globalAlpha = style.strength * (1 - delta / sweepWidth);
+          ctx.beginPath(); ctx.arc(gx, gy, style.dotSize * 1.5, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+    _drawCursorRipples(ctx, cursor, style, w, height, radius * 2);
+    _drawCursorMarker(ctx, cursor, style, w, height);
+    ctx.restore();
+  }
+
+  function _drawPhysicsDemo(ctx, h, data, w, height, colorPaint) {
+    ctx.fillStyle = _spacerBackground(h);
+    ctx.fillRect(0, 0, w, height);
+    const centerX = w * 0.5, centerY = height * 0.48;
+    ctx.strokeStyle = 'rgba(120,160,180,0.12)';
+    ctx.lineWidth = 1;
+    for (let x = centerX % 32; x < w; x += 32) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke();
+    }
+    for (let y = centerY % 32; y < height; y += 32) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+    data.time += 0.012;
+    data.bodies.forEach((body, index) => {
+      body.vy += 0.025;
+      body.x += body.vx;
+      body.y += body.vy;
+      if (body.x < body.radius || body.x > w - body.radius) body.vx *= -0.96;
+      if (body.y < body.radius || body.y > height - body.radius) body.vy *= -0.9;
+      body.x = Math.max(body.radius, Math.min(w - body.radius, body.x));
+      body.y = Math.max(body.radius, Math.min(height - body.radius, body.y));
+      body.trail.push({ x: body.x, y: body.y });
+      if (body.trail.length > 36) body.trail.shift();
+      ctx.strokeStyle = _spacerRgba(h, index * w / data.bodies.length, w, 0.25);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      body.trail.forEach((point, trailIndex) => {
+        if (!trailIndex) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+      });
+      ctx.stroke();
+      const forceX = body.vx * 14, forceY = body.vy * 14;
+      ctx.strokeStyle = _spacerRgba(h, index * w / data.bodies.length, w, 0.85);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(body.x, body.y); ctx.lineTo(body.x + forceX, body.y + forceY); ctx.stroke();
+      ctx.fillStyle = colorPaint;
+      ctx.beginPath(); ctx.arc(body.x, body.y, body.radius, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.fillStyle = 'rgba(220,235,245,0.72)';
+    ctx.font = '11px monospace';
+    ctx.fillText('GRAVITY  ↓   ·   VELOCITY  →   ·   WALL COLLISIONS', 10, height - 10, Math.max(0, w - 20));
+  }
+
+  function _drawBouncingBall(ctx, data, w, height, colorPaint) {
+    const floor = height - data.radius - 1;
+    data.vy += 0.34;
+    data.x += data.vx;
+    data.y += data.vy;
+    if (data.x < data.radius) { data.x = data.radius; data.vx = Math.abs(data.vx); }
+    if (data.x > w - data.radius) { data.x = w - data.radius; data.vx = -Math.abs(data.vx); }
+    if (data.y >= floor) {
+      data.y = floor;
+      if (Math.abs(data.vy) > 1.1) data.vy = -Math.abs(data.vy) * 0.82;
+      else { data.vy = 0; data.vx *= 0.995; }
+    }
+    data.trail.push({ x: data.x, y: data.y });
+    if (data.trail.length > 24) data.trail.shift();
+    ctx.strokeStyle = 'rgba(255,255,255,0.24)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    data.trail.forEach((point, i) => {
+      if (!i) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+    });
+    ctx.stroke();
+    ctx.fillStyle = colorPaint;
+    ctx.beginPath(); ctx.arc(data.x, data.y, data.radius, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(220,235,245,0.6)';
+    ctx.fillRect(0, height - 2, w, 2);
+  }
+
+  function _drawDefragMap(ctx, h, data, w, height, colorPaint) {
+      const { cols, rows } = data;
+    data.tick++;
+    if (data.tick % 3 === 0) {
+      for (let step = 0; step < 2; step++) {
+          if (data.cursor >= data.blocks.length) {
+          data.cursor = 0;
+          data.cycles++;
+            data.blocks = data.blocks.map((_, index) => index < data.blocks.length * (0.45 + Math.random() * 0.3) ? 1 : 0);
+          } else if (!data.blocks[data.cursor]) {
+            const next = data.blocks.indexOf(1, data.cursor + 1);
+          if (next !== -1) {
+              data.blocks[data.cursor] = 1;
+              data.blocks[next] = 0;
+          }
+        }
+        data.cursor++;
+      }
+    }
+    ctx.fillStyle = _spacerBackground(h);
+    ctx.fillRect(0, 0, w, height);
+    const gap = 2;
+    const cellW = Math.max(1, (w - gap * (cols + 1)) / cols);
+    const cellH = Math.max(1, (height - 38 - gap * (rows + 1)) / rows);
+    let used = 0;
+    data.blocks.forEach((occupied, index) => {
+      if (occupied) used++;
+      const x = gap + (index % cols) * (cellW + gap);
+      const y = 26 + gap + Math.floor(index / cols) * (cellH + gap);
+      const scanning = index === data.cursor;
+      ctx.fillStyle = scanning ? '#ffffff' : occupied ? _spacerRgb(h, x, w, 0.9) : 'rgba(130,150,160,0.12)';
+      ctx.fillRect(x, y, cellW, cellH);
+    });
+    ctx.fillStyle = colorPaint;
+    ctx.font = 'bold 12px monospace';
+    ctx.fillText(`DISK MAP  ·  COMPACTING  ·  ${Math.round(100 * used / data.blocks.length)}% USED`, 8, 17, Math.max(0, w - 16));
+  }
+
+  function _drawChatInteractive(ctx, h, data, w, height, colorPaint) {
+    ctx.fillStyle = _spacerBackground(h);
+    ctx.fillRect(0, 0, w, height);
+    data.time += 0.02;
+    data.messages.forEach(message => {
+      message.age++;
+      message.x += message.vx;
+      message.y += message.vy;
+      message.vx *= 0.992;
+      message.vy *= 0.992;
+      if (message.age > 500) message.alpha = Math.max(0, 1 - (message.age - 500) / 120);
+      ctx.globalAlpha = message.alpha;
+      ctx.strokeStyle = _spacerRgba(h, message.x, w, 0.38);
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(message.x, message.y, message.radius, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = _spacerRgba(h, message.x, w, 0.09);
+      ctx.beginPath(); ctx.arc(message.x, message.y, message.radius, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = colorPaint;
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(message.user, message.x + 8, message.y - 5, Math.max(0, message.radius * 1.5));
+      ctx.font = '10px monospace';
+      ctx.fillStyle = 'rgba(240,245,250,0.9)';
+      ctx.fillText(message.text, message.x + 8, message.y + 10, Math.max(0, message.radius * 1.5));
+      message.particles.forEach(particle => {
+        particle.x += particle.vx;
+        particle.y += particle.vy;
+        particle.life -= 0.012;
+        ctx.globalAlpha = Math.max(0, particle.life) * message.alpha;
+        ctx.fillStyle = _spacerRgb(h, particle.x, w);
+        ctx.beginPath(); ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2); ctx.fill();
+      });
+    });
+    ctx.globalAlpha = 1;
+    data.messages = data.messages.filter(message => message.alpha > 0 && message.y > -60 && message.y < height + 60);
+    ctx.fillStyle = 'rgba(220,235,245,0.56)';
+    ctx.font = '10px monospace';
+    ctx.fillText(data.messages.length ? `CHAT ENERGY  ·  ${data.messages.length} ACTIVE` : 'WAITING FOR CHAT…', 10, height - 10);
+  }
+
+  function _addChatInteractiveMessage(data, msg, w, height) {
+    if (!msg || (!msg.text && !msg.user)) return;
+    const x = Math.random() * Math.max(1, w);
+    const y = height + 24;
+    const text = String(msg.text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const particles = Array.from({ length: Math.min(18, 5 + Math.ceil(text.length / 8)) }, () => {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.4 + Math.random() * 2.4;
+      return {
+        x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed - 1,
+        life: 0.8 + Math.random() * 0.2, size: 1 + Math.random() * 2.5,
+      };
+    });
+    data.messages.push({
+      user: String(msg.user || 'viewer').slice(0, 24),
+      text: text || '…',
+      x, y, vx: (Math.random() - 0.5) * 0.7, vy: -0.8 - Math.random() * 1.2,
+      radius: 32 + Math.min(40, text.length * 0.3), age: 0, alpha: 1, particles,
+    });
+    if (data.messages.length > 36) data.messages.shift();
+  }
+
+  function _drawCardCascade(ctx, h, data, w, height, colorPaint) {
+    ctx.fillStyle = _spacerBackground(h);
+    ctx.fillRect(0, 0, w, height);
+    data.time += 0.012;
+    const cardW = Math.min(w * 0.48, 230), cardH = Math.min(height * 0.5, 135);
+    data.cards.forEach((card, index) => {
+      const angle = data.time * (card.speed * 0.12) + card.phase;
+      const depth = (index + 1) / data.cards.length;
+      const orbitX = Math.sin(angle) * w * 0.24;
+      const orbitY = Math.cos(angle * 0.7 + card.phase) * height * 0.22;
+      const scale = 0.48 + depth * 0.55;
+      const x = w * 0.5 + orbitX - cardW * scale * 0.5;
+      const y = height * 0.52 + orbitY - cardH * scale * 0.5;
+      ctx.save();
+      ctx.globalAlpha = 0.28 + depth * 0.7;
+      ctx.translate(x + cardW * scale / 2, y + cardH * scale / 2);
+      ctx.rotate(Math.sin(angle * 0.6) * 0.11);
+      ctx.scale(scale, scale);
+      ctx.fillStyle = 'rgba(13,20,28,0.94)';
+      ctx.strokeStyle = _spacerRgba(h, index * w / data.cards.length, w, 0.3 + depth * 0.65);
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-cardW / 2, -cardH / 2, cardW, cardH);
+      ctx.strokeRect(-cardW / 2, -cardH / 2, cardW, cardH);
+      ctx.fillStyle = colorPaint;
+      ctx.fillRect(-cardW / 2, -cardH / 2, cardW, 20);
+      ctx.fillStyle = '#10161c';
+      ctx.beginPath();
+      ctx.arc(-cardW / 2 + 9, -cardH / 2 + 10, 2.5, 0, Math.PI * 2);
+      ctx.arc(-cardW / 2 + 18, -cardH / 2 + 10, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(215,230,240,0.7)';
+      ctx.fillRect(-cardW / 2 + 12, -cardH / 2 + 38, cardW * 0.62, 5);
+      ctx.fillRect(-cardW / 2 + 12, -cardH / 2 + 52, cardW * 0.4, 4);
+      ctx.fillRect(-cardW / 2 + 12, -cardH / 2 + 66, cardW * 0.74, 4);
+      ctx.restore();
+    });
   }
 
   function _applySpacerTextGradient(h) {
@@ -1079,24 +1596,10 @@ const Panels = (() => {
     });
   }
 
-  function _rgba(hex, a) {
-    const { r, g, b } = _hexToRgb(hex);
-    return `rgba(${r},${g},${b},${a})`;
-  }
-
- 
- 
-  function _shade(hex, factor) {
-    const { r, g, b } = _hexToRgb(hex);
-    const f = Math.max(0, Math.min(2, factor));
-    const mix = (c) => Math.max(0, Math.min(255, Math.round(c * f)));
-    return `rgb(${mix(r)},${mix(g)},${mix(b)})`;
-  }
-
   const spacer = {
     mount(body, win) {
       body.classList.add('wm-term', 'spacer-body');
-      const kind = (win && win.opts && win.opts.spacer_kind) || 'bootlog';
+      const kind = normalizeSpacerKind(win);
       const canvasEl = document.createElement('canvas');
       const pre = document.createElement('div');
       pre.className = 'spacer-pre';
@@ -1115,6 +1618,43 @@ const Panels = (() => {
       return h;
     },
     onState(h, key, msg) {
+      if (key === 'chat' && h.kind === 'chat-interactive') {
+        _addChatInteractiveMessage(
+          h.modeData.chatInteractive, msg,
+          h.canvas.width * _pix(h), h.canvas.height * _pix(h)
+        );
+        return;
+      }
+      if (key === 'pointer' && msg) {
+        if (_isCursorSpacer(h.kind)) {
+          const cursor = h.modeData.cursor;
+          const x = Number(msg.x), y = Number(msg.y);
+          if (Number.isFinite(x) && Number.isFinite(y)) {
+            const nextX = Math.max(0, Math.min(1, x));
+            const nextY = Math.max(0, Math.min(1, y));
+            const distance = Math.hypot(nextX - cursor.x, nextY - cursor.y);
+            cursor.x = nextX;
+            cursor.y = nextY;
+            cursor.hasPosition = true;
+            cursor.buttons = Number(msg.buttons) || 0;
+            const now = performance.now();
+            if (h.kind === 'cursor-ripple' && distance > 0.004 && now - cursor.lastRippleAt > 75) {
+              cursor.ripples.push({ x: nextX, y: nextY, radius: 0, life: 1 });
+              cursor.lastRippleAt = now;
+            }
+          }
+          if (msg.action === 'down' && cursor.hasPosition) {
+            cursor.ripples.push({ x: cursor.x, y: cursor.y, radius: 0, life: 1 });
+            if (cursor.ripples.length > 24) cursor.ripples.shift();
+          }
+        } else if (h.kind === 'pointer-debug') {
+          const debug = h.modeData.pointerDebug;
+          debug.messageCount += 1;
+          debug.last = msg;
+          debug.lastAt = performance.now();
+        }
+        return;
+      }
       if (key === 'status') {
         h.liveStatus = (msg && msg.value) || '';
         return;
@@ -1123,16 +1663,21 @@ const Panels = (() => {
         h.liveScene = (msg && msg.value) || '';
         return;
       }
-      if (msg && msg.spacer_kind && msg.spacer_kind !== h.kind) {
-        h.kind = msg.spacer_kind;
-        this.unmount(h);
-        startSpacer(h);
+      if (msg && msg.spacer_kind) {
+        h.win = { ...h.win, opts: { ...(h.win && h.win.opts || {}), spacer_kind: msg.spacer_kind } };
+        const kind = normalizeSpacerKind(h.win);
+        if (kind !== h.kind) {
+          h.kind = kind;
+          this.unmount(h);
+          startSpacer(h);
+        }
       }
     },
     applyOpts(h, win) {
       h.win = win;
+      h.body.style.backgroundColor = _spacerBackground(h);
       if (h.resize) h.resize();
-      const kind = (win.opts && win.opts.spacer_kind) || 'bootlog';
+      const kind = normalizeSpacerKind(win);
       if (kind !== h.kind) {
         h.kind = kind;
         spacer.unmount(h);
@@ -1158,11 +1703,12 @@ const Panels = (() => {
     h.modeData = {};
     h.t = 0;
 
-    if (h.kind === 'bootlog' || h.kind === 'typewriter') {
+    if (h.kind === 'bootlog') {
       h.pre.style.display = 'block';
       h.canvas.style.display = 'none';
       h.pre.style.color = _spacerColor(h);
-      const lines = h.kind === 'typewriter' ? TYPEWRITER_LINES : BOOTLOG_LINES;
+      h.body.style.backgroundColor = _spacerBackground(h);
+      const lines = BOOTLOG_LINES;
       const tick = () => {
         h.pre.style.color = _spacerColor(h);
         const n = Math.min(lines.length, h.lineIdx + 1);
@@ -1172,7 +1718,7 @@ const Panels = (() => {
             .join('') + '<span class="wm-cursor" style="background:' + _spacerColor(h) + ';">&nbsp;</span>';
         _applySpacerTextGradient(h);
         h.lineIdx = (h.lineIdx + 1) % (lines.length + 3);
-        h.timer = setTimeout(tick, h.kind === 'typewriter' ? 450 : 600);
+        h.timer = setTimeout(tick, 600);
       };
       tick();
       return;
@@ -1181,6 +1727,7 @@ const Panels = (() => {
     h.pre.style.display = 'none';
     h.canvas.style.display = 'block';
     h.canvas.style.imageRendering = 'pixelated';
+    h.body.style.backgroundColor = _spacerBackground(h);
     const ctx = h.canvas.getContext('2d');
 
     function resize() {
@@ -1201,8 +1748,8 @@ const Panels = (() => {
       let cols = new Array(Math.floor((h.canvas.width * _pix(h)) / 14)).fill(0);
       modeData.matrix = { chars, cols };
     } else if (h.kind === 'starfield') {
-      const stars = Array.from({ length: 150 }, () => ({
-        x: (Math.random() - 0.5) * 1000, y: (Math.random() - 0.5) * 1000, z: Math.random() * 1000
+      const stars = Array.from({ length: 220 }, () => ({
+        x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2, z: Math.random() * 1000, px: null, py: null
       }));
       modeData.stars = stars;
     } else if (h.kind === 'fire') {
@@ -1219,7 +1766,7 @@ const Panels = (() => {
     } else if (h.kind === 'dna') {
       modeData.dna = { angle: 0 };
     } else if (h.kind === 'pipes') {
-      modeData.pipes = { walkers: [], cell: 10, grid: null, cols: 0, rows: 0 };
+      modeData.pipes = { walkers: [], cell: 12, grid: false, cols: 0, rows: 0 };
     } else if (h.kind === 'life') {
       const cell = 6;
       const cols = Math.max(4, Math.floor((h.canvas.width * _pix(h)) / cell));
@@ -1256,8 +1803,8 @@ const Panels = (() => {
       };
     } else if (h.kind === 'wobble') {
       modeData.wobble = { rings: 6 };
-    } else if (h.kind === 'lens') {
-      modeData.lens = { angle: 0 };
+    } else if (h.kind === 'htop') {
+      modeData.htop = { v: [] };
     } else if (h.kind === 'floorgrid') {
       modeData.floorgrid = {};
     } else if (h.kind === 'bump') {
@@ -1269,9 +1816,56 @@ const Panels = (() => {
     } else if (h.kind === 'twister') {
       modeData.twister = { angle: 0 };
     } else if (h.kind === 'fluid') {
-      modeData.fluid = { angle: 0 };
-    } else if (h.kind === 'torus') {
-      modeData.torus = { ax: 0, ay: 0, az: 0 };
+      modeData.fluid = { time: 0 };
+    } else if (_isCursorSpacer(h.kind)) {
+      const pointer = pointerCache;
+      modeData.cursor = {
+        x: pointer.x, y: pointer.y,
+        hasPosition: pointer.action !== 'leave' && pointer.action !== 'cancel',
+        buttons: pointer.buttons || 0, ripples: [], lastRippleAt: 0,
+        particles: [], sweepAngle: 0,
+      };
+    } else if (h.kind === 'physics-demo') {
+      const width = h.canvas.width * _pix(h), height = h.canvas.height * _pix(h);
+      modeData.physicsDemo = {
+        time: 0,
+        bodies: Array.from({ length: 7 }, (_, index) => ({
+          x: width * (0.18 + Math.random() * 0.64),
+          y: height * (0.12 + Math.random() * 0.5),
+          vx: (Math.random() - 0.5) * 3.2,
+          vy: Math.random() * 1.5,
+          radius: 4 + Math.random() * 4,
+          trail: [],
+          index,
+        })),
+      };
+    } else if (h.kind === 'bouncing-ball') {
+      const width = h.canvas.width * _pix(h), height = h.canvas.height * _pix(h);
+      modeData.bouncingBall = {
+        x: width * 0.28, y: height * 0.2, vx: 3.1, vy: 0,
+        radius: Math.max(8, Math.min(width, height) * 0.065), trail: [],
+      };
+    } else if (h.kind === 'defrag-map') {
+      const cols = Math.max(12, Math.min(72, Math.floor((h.canvas.width * _pix(h)) / 12)));
+      const rows = Math.max(8, Math.min(42, Math.floor((h.canvas.height * _pix(h)) / 12)));
+      const length = cols * rows;
+      modeData.defragMap = {
+        cols, rows, cursor: 0, tick: 0, cycles: 0,
+        blocks: Array.from({ length }, (_, index) => index < length * 0.68 && Math.random() > 0.24 ? 1 : 0),
+      };
+    } else if (h.kind === 'chat-interactive') {
+      modeData.chatInteractive = { time: 0, messages: [] };
+      const width = h.canvas.width * _pix(h), height = h.canvas.height * _pix(h);
+      chatCache.forEach(message => _addChatInteractiveMessage(modeData.chatInteractive, message, width, height));
+    } else if (h.kind === 'card-cascade') {
+      modeData.cardCascade = {
+        time: 0,
+        cards: Array.from({ length: 8 }, (_, index) => ({
+          phase: index * Math.PI * 0.37, speed: 0.5 + Math.random() * 1.5,
+        })),
+      };
+    } else if (h.kind === 'pointer-debug') {
+      modeData.pointerDebug = { messageCount: 0, last: null, lastAt: null };
     }
 
     function frame() {
@@ -1281,13 +1875,15 @@ const Panels = (() => {
       ctx.imageSmoothingEnabled = false;
       const w = h.canvas.width * P;
       const hg = h.canvas.height * P;
-      const color = _spacerColor(h);
+      h.spacerRgbCache = new Map();
       const colorPaint = _spacerGradient(ctx, h, w);
 
       switch (h.kind) {
         case 'matrix': {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.15;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           ctx.fillStyle = colorPaint;
           ctx.font = '13px monospace';
           const chars = modeData.matrix.chars;
@@ -1303,10 +1899,10 @@ const Panels = (() => {
           break;
         }
         case 'static': {
-          const { r, g, b } = _hexToRgb(color);
           const img = ctx.createImageData(h.canvas.width, h.canvas.height);
           for (let i = 0; i < img.data.length; i += 4) {
             const v = Math.random();
+            const { r, g, b } = _spacerRgbAt(h, ((i / 4) % h.canvas.width) * P, w);
             img.data[i] = r * v;
             img.data[i + 1] = g * v;
             img.data[i + 2] = b * v;
@@ -1316,31 +1912,51 @@ const Panels = (() => {
           break;
         }
         case 'starfield': {
-          ctx.fillStyle = '#000005';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           const cx = w / 2, cy = hg / 2;
-          const { r, g, b } = _hexToRgb(color);
           modeData.stars.forEach(s => {
-            s.z -= 4;
+            s.z -= 6;
             if (s.z <= 0) {
               s.z = 1000;
-              s.x = (Math.random() - 0.5) * 1000;
-              s.y = (Math.random() - 0.5) * 1000;
+              s.x = (Math.random() - 0.5) * 2;
+              s.y = (Math.random() - 0.5) * 2;
+              s.px = null;
+              s.py = null;
             }
-            const k = 256 / s.z;
-            const px = s.x * k + cx, py = s.y * k + cy;
+            const scale = Math.min(w, hg) * 0.72;
+            const px = (s.x * scale * 1000) / s.z + cx;
+            const py = (s.y * scale * 1000) / s.z + cy;
             if (px >= 0 && px < w && py >= 0 && py < hg) {
-              const size = Math.max(0.5, (1 - s.z / 1000) * 3);
-              const shade = (1 - s.z / 1000);
-              ctx.fillStyle = `rgb(${Math.round(r * shade + 255 * (1 - shade) * 0.2)},${Math.round(g * shade + 255 * (1 - shade) * 0.2)},${Math.round(b * shade + 255 * (1 - shade) * 0.2)})`;
-              ctx.fillRect(px, py, size, size);
+              const progress = 1 - s.z / 1000;
+              const size = 0.8 + progress * 3.8;
+              const shade = 0.45 + progress * 0.55;
+              const { r, g, b } = _spacerRgbAt(h, px, w);
+              ctx.fillStyle = `rgb(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)})`;
+              if (s.px !== null && s.py !== null) {
+                ctx.globalAlpha = 0.25 + progress * 0.75;
+                ctx.strokeStyle = colorPaint;
+                ctx.lineWidth = Math.max(1, size * 0.55);
+                ctx.beginPath();
+                ctx.moveTo(s.px, s.py);
+                ctx.lineTo(px, py);
+                ctx.stroke();
+              }
+              ctx.globalAlpha = 1;
+              ctx.beginPath();
+              ctx.arc(px, py, size / 2, 0, Math.PI * 2);
+              ctx.fill();
             }
+            s.px = px;
+            s.py = py;
           });
           break;
         }
         case 'oscilloscope': {
-          ctx.fillStyle = 'rgba(0, 10, 5, 0.2)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.2;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           ctx.strokeStyle = colorPaint;
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -1366,12 +1982,12 @@ const Panels = (() => {
             }
           }
           const pw = Math.ceil(w / cols), ph = Math.ceil(hg / rows);
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
               const val = buf[r * cols + c];
               if (val > 0) {
                 const t2 = val / 255;
+                const { r: br, g: bg, b: bb } = _spacerRgbAt(h, c * pw, w);
                 ctx.fillStyle = `rgb(${Math.min(255, Math.round(br * t2 + 255 * (1 - t2) * (t2)))},${Math.round(bg * t2)},${Math.round(bb * t2 * 0.5)})`;
                 ctx.fillRect(c * pw, r * ph, pw, ph);
               }
@@ -1384,13 +2000,13 @@ const Panels = (() => {
          
           const block = 6;
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           const time = h.t * 0.04;
           for (let yy = 0; yy < rows; yy++) {
             for (let xx = 0; xx < cols; xx++) {
               const v = Math.sin(xx * 0.15 + time) + Math.sin(yy * 0.15 + time * 1.3) +
                         Math.sin((xx + yy) * 0.1 + time * 0.7) + Math.sin(Math.sqrt(xx * xx + yy * yy) * 0.12 - time);
               const t2 = (v + 4) / 8;
+              const { r: br, g: bg, b: bb } = _spacerRgbAt(h, xx * block, w);
               ctx.fillStyle = `rgb(${Math.round(br * t2)},${Math.round(bg * (1 - t2) + bg * t2 * 0.3)},${Math.round(bb * (1 - t2 * 0.5))})`;
               ctx.fillRect(xx * block, yy * block, block, block);
             }
@@ -1398,8 +2014,10 @@ const Panels = (() => {
           break;
         }
         case 'rain': {
-          ctx.fillStyle = 'rgba(3, 5, 8, 0.25)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.25;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           ctx.strokeStyle = colorPaint;
           ctx.lineWidth = 1;
           const drops = modeData.rain;
@@ -1422,13 +2040,14 @@ const Panels = (() => {
           break;
         }
         case 'dna': {
-          ctx.fillStyle = 'rgba(2, 4, 6, 0.3)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.3;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           const cx = w / 2;
           const amp = Math.min(w * 0.28, 80);
           const steps = 40;
           modeData.dna.angle += 0.05;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           for (let i = 0; i < steps; i++) {
             const y = (i / steps) * hg;
             const phase = modeData.dna.angle + i * 0.35;
@@ -1437,53 +2056,74 @@ const Panels = (() => {
             const depth1 = (Math.cos(phase) + 1) / 2;
             const depth2 = (Math.cos(phase + Math.PI) + 1) / 2;
             if (i % 3 === 0) {
-              ctx.strokeStyle = `rgba(${br},${bg},${bb},${0.25 + 0.25 * Math.min(depth1, depth2)})`;
+              ctx.strokeStyle = _spacerRgba(h, (x1 + x2) / 2, w, 0.25 + 0.25 * Math.min(depth1, depth2));
               ctx.lineWidth = 1.5;
               ctx.beginPath(); ctx.moveTo(x1, y); ctx.lineTo(x2, y); ctx.stroke();
             }
-            ctx.fillStyle = `rgba(${br},${bg},${bb},${0.4 + 0.6 * depth1})`;
+            ctx.fillStyle = _spacerRgba(h, x1, w, 0.4 + 0.6 * depth1);
             ctx.beginPath(); ctx.arc(x1, y, 3 + depth1 * 2, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = `rgba(${br},${bg},${bb},${0.4 + 0.6 * depth2})`;
+            ctx.fillStyle = _spacerRgba(h, x2, w, 0.4 + 0.6 * depth2);
             ctx.beginPath(); ctx.arc(x2, y, 3 + depth2 * 2, 0, Math.PI * 2); ctx.fill();
           }
           break;
         }
         case 'pipes': {
-          const cell = modeData.pipes.cell;
-          if (!modeData.pipes.grid || modeData.pipes.cols !== Math.floor(w / cell) || modeData.pipes.rows !== Math.floor(hg / cell)) {
-            modeData.pipes.cols = Math.max(2, Math.floor(w / cell));
-            modeData.pipes.rows = Math.max(2, Math.floor(hg / cell));
-            ctx.fillStyle = '#000';
+          const pipes = modeData.pipes;
+          const cell = pipes.cell;
+          const cols = Math.max(2, Math.floor(w / cell));
+          const rows = Math.max(2, Math.floor(hg / cell));
+          if (!pipes.grid || pipes.cols !== cols || pipes.rows !== rows) {
+            pipes.cols = cols;
+            pipes.rows = rows;
+            pipes.grid = true;
+            pipes.walkers = [{
+              x: Math.floor(cols / 2), y: Math.floor(rows / 2),
+              dir: Math.floor(Math.random() * 4), life: 1200, hue: Math.random(),
+            }];
+            ctx.fillStyle = _spacerBackground(h);
             ctx.fillRect(0, 0, w, hg);
-            modeData.pipes.walkers = [];
           }
-          if (modeData.pipes.walkers.length < 3 && Math.random() > 0.9) {
-            modeData.pipes.walkers.push({
-              x: Math.floor(Math.random() * modeData.pipes.cols),
-              y: Math.floor(Math.random() * modeData.pipes.rows),
+          if (pipes.walkers.length < 4 && Math.random() > 0.985) {
+            pipes.walkers.push({
+              x: Math.floor(Math.random() * pipes.cols),
+              y: Math.floor(Math.random() * pipes.rows),
               dir: Math.floor(Math.random() * 4),
-              life: 200 + Math.random() * 300,
+              life: 700 + Math.random() * 500,
               hue: Math.random(),
             });
           }
-          ctx.fillStyle = 'rgba(0,0,0,0.02)';
-          ctx.fillRect(0, 0, w, hg);
-          modeData.pipes.walkers = modeData.pipes.walkers.filter(walker => {
+          pipes.walkers = pipes.walkers.filter(walker => {
             walker.life -= 1;
             if (walker.life <= 0) return false;
-            if (Math.random() > 0.85) walker.dir = Math.floor(Math.random() * 4);
-            const dx = [1, -1, 0, 0][walker.dir], dy = [0, 0, 1, -1][walker.dir];
-            walker.x = (walker.x + dx + modeData.pipes.cols) % modeData.pipes.cols;
-            walker.y = (walker.y + dy + modeData.pipes.rows) % modeData.pipes.rows;
-            ctx.fillStyle = _shade(color, 0.6 + walker.hue * 0.8);
-            ctx.fillRect(walker.x * cell, walker.y * cell, cell - 1, cell - 1);
+            const previousX = walker.x, previousY = walker.y;
+            if (Math.random() > 0.88) {
+              const turn = Math.random() > 0.5 ? 1 : 3;
+              walker.dir = (walker.dir + turn) % 4;
+            }
+            const dx = [1, 0, -1, 0][walker.dir], dy = [0, 1, 0, -1][walker.dir];
+            let nextX = walker.x + dx, nextY = walker.y + dy;
+            if (nextX < 0 || nextX >= pipes.cols || nextY < 0 || nextY >= pipes.rows) {
+              walker.dir = (walker.dir + (Math.random() > 0.5 ? 1 : 3)) % 4;
+              nextX = walker.x + [1, 0, -1, 0][walker.dir];
+              nextY = walker.y + [0, 1, 0, -1][walker.dir];
+            }
+            walker.x = nextX;
+            walker.y = nextY;
+            ctx.strokeStyle = _spacerRgb(h, walker.x * cell, w, 0.65 + walker.hue * 0.7);
+            ctx.lineWidth = cell * 0.62;
+            ctx.lineCap = 'square';
+            ctx.beginPath();
+            ctx.moveTo(previousX * cell + cell / 2, previousY * cell + cell / 2);
+            ctx.lineTo(walker.x * cell + cell / 2, walker.y * cell + cell / 2);
+            ctx.stroke();
             return true;
           });
+          if (!pipes.walkers.length) pipes.grid = false;
           break;
         }
         case 'life': {
           const L = modeData.life;
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           L.genTick++;
           if (L.genTick % 6 === 0) {
@@ -1516,17 +2156,18 @@ const Panels = (() => {
           break;
         }
         case 'waveform': {
-          ctx.fillStyle = 'rgba(2,4,6,0.35)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.35;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           const WF = modeData.waveform;
           const barW = w / WF.bars;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           for (let i = 0; i < WF.bars; i++) {
             WF.phases[i] += 0.05 + (i % 5) * 0.01;
             const amp = (Math.sin(WF.phases[i]) * 0.5 + 0.5) * (0.4 + 0.6 * Math.sin(h.t * 0.02 + i * 0.3) ** 2);
             const barH = amp * hg * 0.85;
             const alpha = 0.5 + amp * 0.5;
-            ctx.fillStyle = `rgba(${br},${bg},${bb},${alpha})`;
+            ctx.fillStyle = _spacerRgba(h, i * barW, w, alpha);
             ctx.fillRect(i * barW + 1, hg - barH, barW - 2, barH);
           }
           break;
@@ -1542,8 +2183,7 @@ const Panels = (() => {
             if (b.x < 0 || b.x > 1) b.vx *= -1;
             if (b.y < 0 || b.y > 1) b.vy *= -1;
           });
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           for (let yy = 0; yy < rows; yy++) {
             const py = yy / rows;
@@ -1557,7 +2197,7 @@ const Panels = (() => {
               }
               if (sum > 1) {
                 const t2 = Math.min(1, (sum - 1) / 2);
-                ctx.fillStyle = `rgba(${br},${bg},${bb},${0.35 + t2 * 0.65})`;
+                ctx.fillStyle = _spacerRgba(h, xx * block, w, 0.35 + t2 * 0.65);
                 ctx.fillRect(xx * block, yy * block, block + 1, block + 1);
               }
             }
@@ -1570,7 +2210,6 @@ const Panels = (() => {
           const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           const cx = w / 2, cy = hg / 2;
           modeData.tunnel.angle += 0.02;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           for (let yy = 0; yy < rows; yy++) {
             for (let xx = 0; xx < cols; xx++) {
               const dx = xx * block - cx, dy = yy * block - cy;
@@ -1579,6 +2218,7 @@ const Panels = (() => {
               const depth = (1 / dist) * 260 + h.t * 0.06;
               const ring = (Math.sin(depth) + Math.sin(ang * 6 + modeData.tunnel.angle)) * 0.5;
               const t2 = (ring + 1) / 2;
+              const { r: br, g: bg, b: bb } = _spacerRgbAt(h, xx * block, w);
               ctx.fillStyle = `rgb(${Math.round(br * t2)},${Math.round(bg * t2)},${Math.round(bb * t2)})`;
               ctx.fillRect(xx * block, yy * block, block + 1, block + 1);
             }
@@ -1599,14 +2239,14 @@ const Panels = (() => {
           const sa = Math.sin(modeData.rotozoom.angle) * zoom;
           const cx = w / 2, cy = hg / 2;
           const checkSize = Math.max(24, Math.min(w, hg) / 8);
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
-          const darkR = Math.round(br * 0.15), darkG = Math.round(bg * 0.15), darkB = Math.round(bb * 0.15);
           for (let yy = 0; yy < rows; yy++) {
             for (let xx = 0; xx < cols; xx++) {
               const px = xx * block - cx, py = yy * block - cy;
               const u = px * ca - py * sa;
               const v = px * sa + py * ca;
               const check = (Math.floor(u / checkSize) + Math.floor(v / checkSize)) % 2 === 0;
+              const { r: br, g: bg, b: bb } = _spacerRgbAt(h, xx * block, w);
+              const darkR = Math.round(br * 0.15), darkG = Math.round(bg * 0.15), darkB = Math.round(bb * 0.15);
               ctx.fillStyle = check ? `rgb(${br},${bg},${bb})` : `rgb(${darkR},${darkG},${darkB})`;
               ctx.fillRect(xx * block, yy * block, block + 1, block + 1);
             }
@@ -1615,20 +2255,24 @@ const Panels = (() => {
         }
         case 'copperbars': {
          
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           const barCount = modeData.copperbars.bars;
           const barH = Math.max(18, hg / 14);
+          const strips = Math.min(48, Math.max(1, Math.ceil(w / 24)));
+          const stripW = w / strips;
           for (let i = 0; i < barCount; i++) {
             const phase = h.t * 0.04 + i * 0.6;
             const cy = hg / 2 + Math.sin(phase) * (hg / 2 - barH);
-            const grad = ctx.createLinearGradient(0, cy - barH / 2, 0, cy + barH / 2);
-            grad.addColorStop(0, `rgba(${br},${bg},${bb},0)`);
-            grad.addColorStop(0.5, `rgba(${br},${bg},${bb},0.9)`);
-            grad.addColorStop(1, `rgba(${br},${bg},${bb},0)`);
-            ctx.fillStyle = grad;
-            ctx.fillRect(0, cy - barH / 2, w, barH);
+            for (let strip = 0; strip < strips; strip++) {
+              const { r, g, b } = _spacerRgbAt(h, (strip + 0.5) * stripW, w);
+              const grad = ctx.createLinearGradient(0, cy - barH / 2, 0, cy + barH / 2);
+              grad.addColorStop(0, `rgba(${r},${g},${b},0)`);
+              grad.addColorStop(0.5, `rgba(${r},${g},${b},0.9)`);
+              grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+              ctx.fillStyle = grad;
+              ctx.fillRect(strip * stripW, cy - barH / 2, stripW + 1, barH);
+            }
           }
           break;
         }
@@ -1638,8 +2282,10 @@ const Panels = (() => {
          
          
          
-          ctx.fillStyle = 'rgba(2,4,6,0.3)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.3;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           const S = modeData.scroller;
           const opts = (h.win && h.win.opts) || {};
           const manualState = opts.spacer_state && opts.spacer_state !== 'default' ? opts.spacer_state : null;
@@ -1659,7 +2305,7 @@ const Panels = (() => {
           const bannerCell = Math.max(3, Math.floor(fontPx / 6));
           const charW = styleName === 'banner' ? (6 * bannerCell) : (ctx.measureText('M').width || 14);
           const cy = hg / 2;
-          styleFn(ctx, S.text, S.x, cy, fontPx, color, h.t, charW);
+          styleFn(ctx, S.text, S.x, cy, fontPx, colorPaint, h.t, charW);
           S.x -= 3;
           const totalW = S.text.length * charW;
           if (S.x < -totalW) {
@@ -1690,7 +2336,7 @@ const Panels = (() => {
                 if (d < best) { best = d; bestI = i; }
               }
               const t2 = bestI / cells.length;
-              ctx.fillStyle = _shade(color, 0.4 + t2 * 1.1);
+              ctx.fillStyle = _spacerRgb(h, xx * block, w, 0.4 + t2 * 1.1);
               ctx.fillRect(xx * block, yy * block, block + 1, block + 1);
             }
           }
@@ -1699,45 +2345,43 @@ const Panels = (() => {
         case 'wobble': {
          
          
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           const cx = w / 2, cy = hg / 2;
           const maxR = Math.sqrt(cx * cx + cy * cy);
           const rings = modeData.wobble.rings;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           ctx.lineWidth = 3;
           for (let i = 0; i < rings * 4; i++) {
             const baseR = (i / (rings * 4)) * maxR;
             const wob = Math.sin(baseR * 0.05 - h.t * 0.06) * 14;
-            ctx.strokeStyle = `rgba(${br},${bg},${bb},${0.15 + 0.5 * ((i % 4) / 4)})`;
+            ctx.strokeStyle = colorPaint;
+            ctx.globalAlpha = 0.15 + 0.5 * ((i % 4) / 4);
             ctx.beginPath();
             ctx.arc(cx, cy, Math.max(0, baseR + wob), 0, Math.PI * 2);
             ctx.stroke();
           }
+          ctx.globalAlpha = 1;
           break;
         }
-        case 'lens': {
-         
-          ctx.fillStyle = '#000';
+        case 'htop': {
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
-          const cx = w / 2, cy = hg / 2;
-          modeData.lens.angle += 0.01;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
-          const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.min(w, hg) * 0.4);
-          glow.addColorStop(0, `rgba(${br},${bg},${bb},0.8)`);
-          glow.addColorStop(1, `rgba(${br},${bg},${bb},0)`);
-          ctx.fillStyle = glow;
-          ctx.fillRect(0, 0, w, hg);
-          const streaks = 8;
-          ctx.lineWidth = 2;
-          for (let i = 0; i < streaks; i++) {
-            const ang = modeData.lens.angle + (i / streaks) * Math.PI * 2;
-            const len = Math.min(w, hg) * (0.3 + 0.15 * Math.sin(h.t * 0.03 + i));
-            ctx.strokeStyle = `rgba(${br},${bg},${bb},0.35)`;
-            ctx.beginPath();
-            ctx.moveTo(cx, cy);
-            ctx.lineTo(cx + Math.cos(ang) * len, cy + Math.sin(ang) * len);
-            ctx.stroke();
+          const H = modeData.htop;
+          const fontPx = 12, rowH = fontPx + 4;
+          ctx.font = fontPx + 'px monospace';
+          ctx.textBaseline = 'middle';
+          const cw = ctx.measureText('M').width || 7;
+          const rows = Math.max(1, Math.floor((hg - 4) / rowH));
+          while (H.v.length < rows) H.v.push(Math.random());
+          H.v.length = rows;
+          const barCols = Math.max(4, Math.floor((w - 8) / cw) - 11);
+          ctx.fillStyle = colorPaint;
+          for (let i = 0; i < rows; i++) {
+            if (h.t % 8 === 0) H.v[i] = Math.min(1, Math.max(0, H.v[i] + (Math.random() - 0.5) * 0.25));
+            const filled = Math.round(H.v[i] * barCols);
+            const pct = String(Math.round(H.v[i] * 100)).padStart(3, ' ');
+            const line = String(i + 1).padStart(2, ' ') + ' [' + '|'.repeat(filled) + ' '.repeat(barCols - filled) + '] ' + pct + '%';
+            ctx.fillText(line, 4, 4 + rowH * i + rowH / 2);
           }
           break;
         }
@@ -1745,12 +2389,12 @@ const Panels = (() => {
          
          
          
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           const horizon = hg * 0.42;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
-          ctx.strokeStyle = `rgba(${br},${bg},${bb},0.7)`;
+          ctx.strokeStyle = colorPaint;
           ctx.lineWidth = 1;
+          ctx.globalAlpha = 0.7;
           const vCount = 12;
           for (let i = -vCount; i <= vCount; i++) {
             const topX = w / 2 + i * (w / (vCount * 2));
@@ -1765,7 +2409,7 @@ const Panels = (() => {
           for (let j = 0; j < hCount; j++) {
             const t2 = (j * 40 + speedOffset) / (hCount * 40);
             const y = horizon + t2 * t2 * (hg - horizon);
-            ctx.globalAlpha = Math.min(1, t2 + 0.15);
+            ctx.globalAlpha = 0.7 * Math.min(1, t2 + 0.15);
             ctx.beginPath();
             ctx.moveTo(0, y);
             ctx.lineTo(w, y);
@@ -1782,7 +2426,6 @@ const Panels = (() => {
           modeData.bump.lightAngle += 0.02;
           const lx = w / 2 + Math.cos(modeData.bump.lightAngle) * w * 0.35;
           const ly = hg / 2 + Math.sin(modeData.bump.lightAngle) * hg * 0.35;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           for (let yy = 0; yy < rows; yy++) {
             for (let xx = 0; xx < cols; xx++) {
               const px = xx * block, py = yy * block;
@@ -1790,7 +2433,7 @@ const Panels = (() => {
               const dx = (lx - px) / w, dy = (ly - py) / hg;
               const lightDot = Math.max(0, dx * Math.cos(height) + dy * Math.sin(height));
               const shade = 0.15 + lightDot * 0.85;
-              ctx.fillStyle = `rgb(${Math.round(br * shade)},${Math.round(bg * shade)},${Math.round(bb * shade)})`;
+              ctx.fillStyle = _spacerRgb(h, px, w, shade);
               ctx.fillRect(px, py, block + 1, block + 1);
             }
           }
@@ -1800,7 +2443,7 @@ const Panels = (() => {
          
          
          
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           const opts = (h.win && h.win.opts) || {};
           const shapeName = opts.spacer_wireframe_shape || 'cube';
@@ -1823,12 +2466,11 @@ const Panels = (() => {
             const persp = dist / (dist + z2);
             return { x: cx + x3 * scale * persp, y: cy + y3 * scale * persp, depth: z2 };
           });
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           shape.edges.forEach(([a, b2]) => {
             const p1 = projected[a], p2 = projected[b2];
             const avgDepth = (p1.depth + p2.depth) / 2;
-            const alpha = Math.max(0.25, Math.min(1, 1 - avgDepth * 0.3));
-            ctx.strokeStyle = `rgba(${br},${bg},${bb},${alpha})`;
+            ctx.globalAlpha = Math.max(0.25, Math.min(1, 1 - avgDepth * 0.3));
+            ctx.strokeStyle = colorPaint;
             ctx.lineWidth = 2;
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
@@ -1837,18 +2479,21 @@ const Panels = (() => {
           });
          
           projected.forEach(p => {
-            const alpha = Math.max(0.4, Math.min(1, 1 - p.depth * 0.3));
-            ctx.fillStyle = `rgba(${br},${bg},${bb},${alpha})`;
+            ctx.globalAlpha = Math.max(0.4, Math.min(1, 1 - p.depth * 0.3));
+            ctx.fillStyle = colorPaint;
             ctx.beginPath();
             ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
             ctx.fill();
           });
+          ctx.globalAlpha = 1;
           break;
         }
         case 'trails': {
           const T = modeData.trails;
-          ctx.fillStyle = 'rgba(0,0,0,0.16)';
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.globalAlpha = 0.16;
           ctx.fillRect(0, 0, w, hg);
+          ctx.globalAlpha = 1;
           T.tick++;
           if (T.particles.length < 32 && T.tick % 3 === 0) {
             const fromLeft = Math.random() < 0.5;
@@ -1878,7 +2523,7 @@ const Panels = (() => {
           break;
         }
         case 'twister': {
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
           const T = modeData.twister;
           T.angle += 0.035;
@@ -1886,7 +2531,6 @@ const Panels = (() => {
           const halfWidth = Math.min(w * 0.34, hg * 0.28);
           const halfHeight = hg * 0.42;
           const cx = w / 2, cy = hg / 2, dist = 4;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
           const project = (u, v) => {
             const y = (u / rows * 2 - 1) * halfHeight;
             const across = (v / columns * 2 - 1) * halfWidth;
@@ -1902,7 +2546,7 @@ const Panels = (() => {
               const c = project(row + 1, column + 1), d = project(row, column + 1);
               const z = (a.z + b.z + c.z + d.z) / 4;
               const shade = Math.max(0.25, Math.min(1.5, 0.65 + z / (halfWidth * 2)));
-              ctx.fillStyle = `rgb(${Math.round(br * shade)},${Math.round(bg * shade)},${Math.round(bb * shade)})`;
+              ctx.fillStyle = _spacerRgb(h, (a.x + b.x + c.x + d.x) / 4, w, shade);
               ctx.beginPath();
               ctx.moveTo(a.x, a.y);
               ctx.lineTo(b.x, b.y);
@@ -1915,73 +2559,222 @@ const Panels = (() => {
           break;
         }
         case 'fluid': {
-          const block = 5;
-          const cols = Math.ceil(w / block), rows = Math.ceil(hg / block);
           const F = modeData.fluid;
-          F.angle += 0.035;
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
-          ctx.fillStyle = '#000';
+          F.time += 0.035;
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
-          for (let yy = 0; yy < rows; yy++) {
-            for (let xx = 0; xx < cols; xx++) {
-              const x = xx * block, y = yy * block;
-              const u = x + Math.sin(y * 0.035 + F.angle) * 18 + Math.sin((x + y) * 0.018 - F.angle) * 10;
-              const v = y + Math.cos(x * 0.03 - F.angle * 1.2) * 14 + Math.sin((x - y) * 0.02 + F.angle) * 8;
-              const wave = Math.sin(u * 0.035 + Math.sin(v * 0.025 + F.angle) * 2);
-              const shade = 0.18 + (wave + 1) * 0.41;
-              ctx.fillStyle = `rgb(${Math.round(br * shade)},${Math.round(bg * shade)},${Math.round(bb * shade)})`;
-              ctx.fillRect(x, y, block + 1, block + 1);
+          const cols = 28, rows = 18;
+          const planeW = Math.min(w * 0.84, hg * 1.75);
+          const planeH = Math.min(hg * 0.55, w * 0.52);
+          const cx = w / 2, cy = hg * 0.58;
+          const vortices = [
+            { x: Math.sin(F.time * 0.7) * 0.38, y: Math.cos(F.time * 0.53) * 0.32, phase: F.time * 2 },
+            { x: Math.cos(F.time * 0.43 + 1) * 0.34, y: Math.sin(F.time * 0.61 + 2) * 0.3, phase: -F.time * 1.5 },
+          ];
+          const heightAt = (u, v) => {
+            let height = Math.sin(u * 12 + F.time * 1.6) * Math.cos(v * 9 - F.time) * 0.035;
+            vortices.forEach(blob => {
+              const dx = u - blob.x, dy = v - blob.y;
+              const distance = Math.sqrt(dx * dx + dy * dy);
+              height += Math.sin(distance * 34 - blob.phase) * Math.exp(-distance * 5) * 0.18;
+            });
+            return height;
+          };
+          const project = (u, v, z) => ({
+            x: cx + u * planeW * (0.48 + v * 0.1) + z * planeW * 0.12,
+            y: cy + v * planeH - z * planeH * 1.7,
+          });
+          const grid = Array.from({ length: rows + 1 }, (_, row) =>
+            Array.from({ length: cols + 1 }, (_, column) => {
+              const u = column / cols * 2 - 1, v = row / rows * 2 - 1;
+              const z = heightAt(u, v);
+              return { ...project(u, v, z), u, v, z };
+            })
+          );
+          ctx.fillStyle = 'rgba(20, 45, 68, 0.65)';
+          ctx.beginPath();
+          const backLeft = project(-1, -1, -0.12);
+          ctx.moveTo(backLeft.x, backLeft.y);
+          [[1, -1], [1, 1], [-1, 1]].forEach(([u, v]) => {
+            const point = project(u, v, -0.12);
+            ctx.lineTo(point.x, point.y);
+          });
+          ctx.closePath();
+          ctx.fill();
+          for (let row = 0; row < rows; row++) {
+            for (let column = 0; column < cols; column++) {
+              const a = grid[row][column], b = grid[row][column + 1];
+              const c = grid[row + 1][column + 1], d = grid[row + 1][column];
+              const slopeX = (b.z - a.z) * cols, slopeY = (d.z - a.z) * rows;
+              const light = Math.max(0.28, Math.min(1.3, 0.72 - slopeX * 0.7 - slopeY * 0.45 + Math.max(0, a.z) * 1.2));
+              ctx.fillStyle = _spacerRgb(h, cx + a.u * planeW * 0.48, w, light);
+              ctx.beginPath();
+              ctx.moveTo(a.x, a.y);
+              ctx.lineTo(b.x, b.y);
+              ctx.lineTo(c.x, c.y);
+              ctx.lineTo(d.x, d.y);
+              ctx.closePath();
+              ctx.fill();
+              if ((row + column) % 2 === 0) {
+                ctx.strokeStyle = 'rgba(210, 245, 255, 0.14)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(a.x, a.y);
+                ctx.lineTo(c.x, c.y);
+                ctx.stroke();
+              }
             }
           }
+          ctx.strokeStyle = 'rgba(190, 225, 240, 0.55)';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].forEach(([u, v]) => {
+            const point = project(u, v, 0);
+            if (u === -1 && v === -1) ctx.moveTo(point.x, point.y);
+            else ctx.lineTo(point.x, point.y);
+          });
+          ctx.stroke();
           break;
         }
-        case 'torus': {
-          ctx.fillStyle = '#000';
+        case 'cursor': {
+          const C = modeData.cursor;
+          const style = _cursorStyle(h);
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
-          const R = modeData.torus;
-          R.ax += 0.012; R.ay += 0.018; R.az += 0.006;
-          const rings = 18, sides = 10;
-          const scale = Math.min(w, hg) * 0.28;
-          const cx = w / 2, cy = hg / 2, dist = 4;
-          const cosx = Math.cos(R.ax), sinx = Math.sin(R.ax);
-          const cosy = Math.cos(R.ay), siny = Math.sin(R.ay);
-          const cosz = Math.cos(R.az), sinz = Math.sin(R.az);
-          const projected = [];
-          for (let i = 0; i < rings; i++) {
-            const u = (i / rings) * Math.PI * 2;
-            const ring = [];
-            for (let j = 0; j < sides; j++) {
-              const v = (j / sides) * Math.PI * 2;
-              const radius = 1 + 0.42 * Math.cos(v);
-              const vx = radius * Math.cos(u), vy = radius * Math.sin(u), vz = 0.42 * Math.sin(v);
-              const y1 = vy * cosx - vz * sinx, z1 = vy * sinx + vz * cosx;
-              const x2 = vx * cosy + z1 * siny, z2 = -vx * siny + z1 * cosy;
-              const x3 = x2 * cosz - y1 * sinz, y3 = x2 * sinz + y1 * cosz;
-              const persp = dist / (dist + z2);
-              ring.push({ x: cx + x3 * scale * persp, y: cy + y3 * scale * persp, depth: z2 });
-            }
-            projected.push(ring);
-          }
-          const { r: br, g: bg, b: bb } = _hexToRgb(color);
-          for (let i = 0; i < rings; i++) {
-            for (let j = 0; j < sides; j++) {
-              const p = projected[i][j], around = projected[i][(j + 1) % sides];
-              const nextRing = projected[(i + 1) % rings][j];
-              const alpha = Math.max(0.3, Math.min(1, 0.7 - p.depth * 0.2));
-              ctx.strokeStyle = `rgba(${br},${bg},${bb},${alpha})`;
-              ctx.lineWidth = 2;
+          const cols = Math.max(1, Math.ceil(w / style.spacing));
+          const rows = Math.max(1, Math.ceil(hg / style.spacing));
+          const points = Array.from({ length: rows + 1 }, (_, row) =>
+            Array.from({ length: cols + 1 }, (_, column) => {
+              const bx = column / cols * w, by = row / rows * hg;
+              const dx = bx - C.x * w, dy = by - C.y * hg;
+              const distance = Math.hypot(dx, dy);
+              const falloff = Math.exp(-distance / style.radius);
+              const push = falloff * style.radius * 0.28 * style.strength;
+              const wave = Math.sin(distance / Math.max(8, style.spacing * 0.75) - h.t * style.speed * 0.12) *
+                falloff * style.radius * 0.12 * style.strength;
+              const amount = distance > 0 ? (push + wave) / distance : 0;
+              return { x: bx + dx * amount, y: by + dy * amount };
+            })
+          );
+          for (let row = 0; row <= rows; row++) {
+            for (let column = 0; column <= cols; column++) {
+              const point = points[row][column];
+              const colorX = column / cols * w;
+              ctx.fillStyle = _spacerRgb(h, colorX, w, 0.8 + 0.2 * Math.sin(h.t * 0.04 + row * 0.3));
               ctx.beginPath();
-              ctx.moveTo(p.x, p.y);
-              ctx.lineTo(around.x, around.y);
-              ctx.moveTo(p.x, p.y);
-              ctx.lineTo(nextRing.x, nextRing.y);
-              ctx.stroke();
+              ctx.arc(point.x, point.y, style.dotSize, 0, Math.PI * 2);
+              ctx.fill();
+              if (column < cols) {
+                const next = points[row][column + 1];
+                ctx.strokeStyle = _cursorRgba(style.spacingColor, 0.36 * style.spacingOpacity);
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineTo(next.x, next.y); ctx.stroke();
+              }
+              if (row < rows) {
+                const next = points[row + 1][column];
+                ctx.strokeStyle = _cursorRgba(style.spacingColor, 0.24 * style.spacingOpacity);
+                ctx.beginPath(); ctx.moveTo(point.x, point.y); ctx.lineTo(next.x, next.y); ctx.stroke();
+              }
             }
+          }
+          _drawCursorRipples(ctx, C, style, w, hg, style.radius * 3);
+          _drawCursorMarker(ctx, C, style, w, hg);
+          break;
+        }
+        case 'cursor-ripple': {
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.fillRect(0, 0, w, hg);
+          _drawCursorRipple(ctx, h, modeData.cursor, _cursorStyle(h), w, hg);
+          break;
+        }
+        case 'cursor-particles': {
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.fillRect(0, 0, w, hg);
+          _drawCursorParticles(ctx, h, modeData.cursor, _cursorStyle(h), w, hg);
+          break;
+        }
+        case 'cursor-radar': {
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.fillRect(0, 0, w, hg);
+          _drawCursorRadar(ctx, h, modeData.cursor, _cursorStyle(h), w, hg);
+          break;
+        }
+        case 'physics-demo': {
+          _drawPhysicsDemo(ctx, h, modeData.physicsDemo, w, hg, colorPaint);
+          break;
+        }
+        case 'bouncing-ball': {
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.fillRect(0, 0, w, hg);
+          _drawBouncingBall(ctx, modeData.bouncingBall, w, hg, colorPaint);
+          break;
+        }
+        case 'defrag-map': {
+          _drawDefragMap(ctx, h, modeData.defragMap, w, hg, colorPaint);
+          break;
+        }
+        case 'chat-interactive': {
+          _drawChatInteractive(ctx, h, modeData.chatInteractive, w, hg, colorPaint);
+          break;
+        }
+        case 'card-cascade': {
+          _drawCardCascade(ctx, h, modeData.cardCascade, w, hg, colorPaint);
+          break;
+        }
+        case 'pointer-debug': {
+          const D = modeData.pointerDebug;
+          const msg = D.last;
+          const age = D.lastAt === null ? null : Math.max(0, performance.now() - D.lastAt);
+          const validPosition = msg && Number.isFinite(msg.x) && Number.isFinite(msg.y);
+          ctx.fillStyle = _spacerBackground(h);
+          ctx.fillRect(0, 0, w, hg);
+
+          ctx.fillStyle = colorPaint;
+          ctx.font = 'bold 16px monospace';
+          ctx.fillText('GLOBAL POINTER DEBUG', 12, 24, Math.max(0, w - 24));
+          ctx.font = '12px monospace';
+          ctx.fillStyle = msg ? '#a7f3d0' : '#ff8b8b';
+          ctx.fillText(
+            msg ? `RECEIVING · ${D.messageCount} messages · ${Math.round(age)} ms ago` : 'NO POINTER MESSAGES RECEIVED',
+            12, 46, Math.max(0, w - 24)
+          );
+
+          ctx.fillStyle = '#e5e7eb';
+          const normalized = validPosition
+            ? `normalized: x=${Number(msg.x).toFixed(4)}  y=${Number(msg.y).toFixed(4)}`
+            : 'normalized: unavailable';
+          ctx.fillText(normalized, 12, 68, Math.max(0, w - 24));
+          const mapped = validPosition
+            ? `panel mapping: x=${Math.round(msg.x * w)}  y=${Math.round(msg.y * hg)}  (${Math.round(w)}x${Math.round(hg)})`
+            : 'panel mapping: unavailable';
+          ctx.fillText(mapped, 12, 88, Math.max(0, w - 24));
+          const screen = msg && Number.isFinite(msg.screen_x) && Number.isFinite(msg.screen_y)
+            ? `screen: x=${msg.screen_x}  y=${msg.screen_y}  desktop=${msg.screen_width}x${msg.screen_height}`
+            : 'screen: raw coordinates unavailable';
+          ctx.fillText(screen, 12, 108, Math.max(0, w - 24));
+          ctx.fillText(
+            `action: ${msg ? msg.action : '—'}  buttons: ${msg ? msg.buttons : '—'}  button: ${msg ? msg.button : '—'}`,
+            12, 128, Math.max(0, w - 24)
+          );
+
+          if (validPosition) {
+            const x = Math.max(0, Math.min(w, msg.x * w));
+            const y = Math.max(0, Math.min(hg, msg.y * hg));
+            ctx.strokeStyle = colorPaint;
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(x, 0); ctx.lineTo(x, hg);
+            ctx.moveTo(0, y); ctx.lineTo(w, y);
+            ctx.stroke();
+            ctx.fillStyle = colorPaint;
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
           }
           break;
         }
         default:
-          ctx.fillStyle = '#000';
+          ctx.fillStyle = _spacerBackground(h);
           ctx.fillRect(0, 0, w, hg);
       }
       h.raf = requestAnimationFrame(frame);
@@ -2002,6 +2795,7 @@ const Panels = (() => {
       h.body.innerHTML = `<div class="line">${escapeHtml(label)}</div><div class="line" style="font-weight:700">${escapeHtml(msg.message || '')}</div>` +
         (msg.sub ? `<div class="line wm-dim">${escapeHtml(msg.sub)}</div>` : '');
       wm.showPopup(winId, true);
+      typeIn(h.body, 40);
       if (h.hideTimer) clearTimeout(h.hideTimer);
       h.hideTimer = setTimeout(() => wm.showPopup(winId, false), 6000);
     },
@@ -2147,9 +2941,18 @@ const Panels = (() => {
 
   const notepadCache = new Map();
   let latestCache = { follower: '', sub: '' };
+  const chatCache = [];
+  let pointerCache = {
+    x: 0.5, y: 0.5, buttons: 0, button: -1, action: 'leave', pointer_type: 'mouse',
+  };
   function cacheMsg(key, msg) {
     if (key === 'notepad' && msg) notepadCache.set(msg.id, msg.value || '');
     else if (key === 'latest') latestCache = msg || { follower: '', sub: '' };
+    else if (key === 'pointer' && msg) pointerCache = msg;
+    else if (key === 'chat' && msg) {
+      chatCache.push(msg);
+      if (chatCache.length > 40) chatCache.shift();
+    }
     else if (key === 'message' || key === 'status') textCache[key] = (msg && msg.value) || '';
   }
 

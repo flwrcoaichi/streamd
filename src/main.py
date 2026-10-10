@@ -18,7 +18,10 @@ from tts import run_tts_worker, run_hotkeys
 from chat_irc import run_stats_thread, run_chat_thread, run_wpm_tracker
 from ytmusic_bridge import run_ytmusic_thread, run_companion_pairing_flow
 from http_server import start_http_server
-from ws_handler import ws_handler, run_key_panel_listener, load_wm_layouts, load_notepads
+from ws_handler import (
+    ws_handler, run_global_pointer_listener, run_key_panel_listener,
+    load_wm_layouts, load_notepads,
+)
 from latest import load_latest
 from canvas import load_canvas
 
@@ -60,6 +63,7 @@ async def main() -> None:
 
     asyncio.create_task(obs_client_task())
     asyncio.create_task(twitch_eventsub_loop())
+    asyncio.create_task(run_global_pointer_listener())
 
     async with websockets.serve(ws_handler, "localhost", WS_PORT):
         log.info("ready.")

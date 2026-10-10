@@ -31,6 +31,10 @@ class StreamState:
             "chat": [],
             "stats": {"cpu": "…", "mem": "…", "gpu": "…", "wpm": "…", "uptime": "…"},
             "scene": "live",
+            "pointer": {
+                "x": 0.5, "y": 0.5, "buttons": 0, "button": -1,
+                "action": "leave", "pointer_type": "mouse",
+            },
             "commands": {},
             "extra": "",
             "obs": {

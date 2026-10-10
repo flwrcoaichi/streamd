@@ -210,15 +210,25 @@
   .win-list-item .rm { padding: 2px 4px; }
   .field { margin-bottom: 12px; }
   .field-row input[type=number], .field-row input[type=text], .field-row select { width: 100%; }
+  .spacer-kind-select { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .spacer-picker { margin: 6px 0 12px; }
+  .spacer-picker-search { width: 100%; margin-bottom: 8px; padding: 8px; color: var(--text); }
+  .spacer-picker-categories { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+  #layout-sidebar .spacer-picker-category { width: auto; min-height: 26px; margin: 0; padding: 4px 7px; font-size: 10px; color: var(--text-dim); }
+  #layout-sidebar .spacer-picker-category.active { border-color: var(--amber-dim); background: rgba(255,178,56,.12); color: #ffc366; }
+  .spacer-picker-results { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 250px; overflow-y: auto; padding: 2px; }
+  #layout-sidebar .spacer-picker-card { min-width: 0; min-height: 0; margin: 0; padding: 7px; text-align: left; }
+  #layout-sidebar .spacer-picker-card.active { border-color: var(--amber); background: rgba(255,178,56,.1); }
+  .spacer-picker-card strong { display: block; overflow: hidden; color: var(--text); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+  .spacer-picker-card span { display: block; margin-top: 4px; color: var(--text-dim); font-size: 9px; line-height: 1.35; }
+  .spacer-picker-card-preview { height: 22px; margin-bottom: 6px; border: 1px solid rgba(255,255,255,.08); border-radius: 3px; background: linear-gradient(135deg,#121a20,#5ec8ff); }
+  .spacer-picker-empty { grid-column: 1/-1; padding: 12px 4px; color: var(--text-dim); font-size: 11px; text-align: center; }
   #layout-sidebar input[type=checkbox] { accent-color: var(--amber); }
   #layout-sidebar input[type=range] { accent-color: var(--amber); }
   #layout-sidebar input[type=color] { width: 100%; height: 34px; min-width: 0; padding: 3px; border: 1px solid #30383e; border-radius: 5px; background: #0b0e10; cursor: pointer; }
   .color-control { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 7px; min-width: 0; }
   .color-control input[type=color] { width: 42px !important; height: 34px; }
   .color-control input[type=text] { min-width: 0; width: 100%; min-height: 34px; padding: 5px 7px; text-transform: uppercase; }
-  .color-alpha { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; color: #77828a; font-size: 10px; }
-  .color-alpha input[type=range] { flex: 1; min-width: 0; width: auto; height: 14px; margin: 0; }
-  .color-alpha output { width: 31px; text-align: right; font-variant-numeric: tabular-nums; color: #aeb8be; }
   .gradient-stops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
   .gradient-stop { min-width: 0; padding: 8px; border: 1px solid #252c31; border-radius: 6px; background: rgba(5, 7, 8, 0.32); }
   .gradient-stop-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; color: #87929a; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; }
@@ -264,8 +274,6 @@
   }
   .color-picker-trigger:hover { transform: translateY(-1px); border-color: var(--amber) !important; }
   .color-picker-trigger:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
-  .color-alpha { justify-content: space-between; padding: 1px 2px 0; }
-  .color-alpha output { width: auto; }
   .pcr-app.streamd-picker {
     z-index: 300; border: 1px solid #3a4148; border-radius: 10px; background: #151a1e;
     box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55); animation: picker-arrive 160ms ease-out both;
@@ -359,6 +367,8 @@
     <button id="bulk-text-apply" type="button">apply text to all</button>
     <div class="field"><label for="bulk-spacer">spacer color</label><input type="color" id="bulk-spacer" value="#4ade80"></div>
     <button id="bulk-spacer-apply" type="button">apply to all spacers</button>
+    <div class="field"><label for="bulk-spacer-bg">spacer background</label><input type="color" id="bulk-spacer-bg" value="#000000"></div>
+    <button id="bulk-spacer-bg-apply" type="button">apply background to all spacers</button>
 
     <div class="side-title">add window</div>
     <select id="add-panel-type">
@@ -425,9 +435,8 @@
       </div>
             <div class="field" id="ed-spacer-kind-row" style="display:none;">
         <label>spacer animation</label>
-        <select id="ed-spacer-kind">
+        <select id="ed-spacer-kind" class="spacer-kind-select" aria-label="Spacer animation">
           <option value="bootlog">bootlog</option>
-          <option value="typewriter">typewriter (log tail)</option>
           <option value="matrix">matrix rain</option>
           <option value="static">static/noise</option>
           <option value="fire">fire</option>
@@ -445,20 +454,60 @@
 <option value="scroller">sine scroller</option>
 <option value="voronoi">voronoi</option>
 <option value="wobble">wobble</option>
-<option value="lens">lens</option>
+<option value="htop">htop bars</option>
 <option value="floorgrid">floor grid</option>
 <option value="bump">bump</option>
 <option value="wireframe">wireframe 3d</option>
 <option value="trails">particle trails</option>
 <option value="twister">twister ribbon 3d</option>
-<option value="fluid">fluid warp</option>
-<option value="torus">wireframe torus 3d</option>
-          <option value="waveform">waveform bars</option>
+<option value="fluid">3d fluid surface</option>
+<option value="cursor">cursor field</option>
+<option value="cursor-ripple">cursor ripples</option>
+<option value="cursor-particles">cursor particles</option>
+<option value="cursor-radar">cursor radar</option>
+<option value="physics-demo">physics demonstration</option>
+<option value="bouncing-ball">bouncing ball</option>
+<option value="defrag-map">defrag disk map</option>
+<option value="chat-interactive">chat interactive</option>
+<option value="card-cascade">window/card cascade</option>
+<option value="pointer-debug">pointer debug</option>
+<option value="waveform">waveform bars</option>
         </select>
+        <div class="spacer-picker" id="ed-spacer-picker">
+          <input class="spacer-picker-search" id="ed-spacer-search" type="search" placeholder="Search spacers…" aria-label="Search spacers">
+          <div class="spacer-picker-categories" id="ed-spacer-categories" aria-label="Spacer categories"></div>
+          <div class="spacer-picker-results" id="ed-spacer-results" role="listbox" aria-label="Spacer styles"></div>
+        </div>
       </div>
       <div class="field" id="ed-spacer-color-row" style="display:none;">
         <label>spacer color</label>
         <input type="color" id="ed-spacer-color">
+      </div>
+      <div class="field" id="ed-spacer-bg-row" style="display:none;">
+        <label>spacer background</label>
+        <input type="color" id="ed-spacer-bg-color" value="#000000">
+      </div>
+      <div id="ed-cursor-style-options" style="display:none;">
+        <div class="field-row">
+          <div class="field"><label for="ed-cursor-spacing">spacing <output id="ed-cursor-spacing-value"></output></label><input type="range" id="ed-cursor-spacing" min="10" max="80" step="1"></div>
+          <div class="field"><label for="ed-cursor-dot-size">dot size <output id="ed-cursor-dot-size-value"></output></label><input type="range" id="ed-cursor-dot-size" min="1" max="8" step="0.5"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ed-cursor-spacing-color">spacing color</label><input type="color" id="ed-cursor-spacing-color"></div>
+          <div class="field"><label for="ed-cursor-accent-color">cursor / effect color</label><input type="color" id="ed-cursor-accent-color"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ed-cursor-spacing-opacity">spacing opacity <output id="ed-cursor-spacing-opacity-value"></output></label><input type="range" id="ed-cursor-spacing-opacity" min="0" max="100" step="1"></div>
+          <div class="field"><label for="ed-cursor-marker-size">marker size <output id="ed-cursor-marker-size-value"></output></label><input type="range" id="ed-cursor-marker-size" min="4" max="32" step="1"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ed-cursor-radius">effect radius <output id="ed-cursor-radius-value"></output></label><input type="range" id="ed-cursor-radius" min="40" max="500" step="5"></div>
+          <div class="field"><label for="ed-cursor-strength">effect strength <output id="ed-cursor-strength-value"></output></label><input type="range" id="ed-cursor-strength" min="0" max="100" step="1"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label for="ed-cursor-speed">animation speed <output id="ed-cursor-speed-value"></output></label><input type="range" id="ed-cursor-speed" min="0" max="200" step="5"></div>
+          <label class="toggle-row"><input type="checkbox" id="ed-cursor-marker"> show cursor marker</label>
+        </div>
       </div>
             <div class="field" id="ed-wireframe-shape-row" style="display:none;">
         <label>wireframe shape</label>
@@ -466,6 +515,7 @@
           <option value="cube">cube</option>
           <option value="pyramid">pyramid</option>
           <option value="octahedron">octahedron</option>
+          <option value="torus">torus</option>
         </select>
       </div>
       <div class="field" id="ed-scroller-style-row" style="display:none;">
@@ -574,7 +624,7 @@ Space|#8be9fd|pill|20|12</textarea>
       </div>
       <div class="field">
         <label>border</label>
-        <select id="ed-border-mode"><option value="default">default</option><option value="solid">solid</option><option value="pixel">pixel gradient</option></select>
+        <select id="ed-border-mode"><option value="default">default</option><option value="solid">solid</option><option value="pixel">pixel gradient</option><option value="box">box-drawing</option></select><select id="ed-box-style" style="margin-top:6px"><option value="single">single ┌─┐</option><option value="rounded">rounded ╭─╮</option><option value="double">double ╔═╗</option><option value="heavy">heavy ┏━┓</option></select>
         <div class="gradient-stops" id="ed-border-stops">
           <div class="gradient-stop"><div class="gradient-stop-head">stop 1</div><input type="color" id="ed-border-color" value="#ffffff"></div>
           <div class="gradient-stop"><div class="gradient-stop-head">stop 2</div><input type="color" id="ed-border-color2" value="#7ef7c6"></div>
@@ -721,6 +771,8 @@ Space|#8be9fd|pill|20|12</textarea>
 <div class="toast" id="toast"></div>
 
 <script src="/wm.js"></script>
+<script src="/wm-editor.js"></script>
+<script src="/ctxmenu.js"></script>
 <script src="/panels.js"></script>
 <script src="/default-layout.js"></script>
 <script src="/vendor/pickr.min.js"></script>
@@ -767,22 +819,16 @@ function enableAlpha(input) {
   hex.placeholder = '#RRGGBBAA';
   wrap.appendChild(hex);
 
-  const alphaRow = document.createElement('label');
-  alphaRow.className = 'color-alpha';
-  alphaRow.append('opacity');
-  const output = document.createElement('output');
-  alphaRow.append(output);
-  wrap.appendChild(alphaRow);
-
   let opacity = 255;
   let picker = null;
+  let syncingPicker = false;
   const updateFields = () => {
     const value = base.get.call(input).toUpperCase();
     hex.value = opacity >= 255 ? value : value + opacity.toString(16).padStart(2, '0').toUpperCase();
-    output.value = `${Math.round(opacity * 100 / 255)}%`;
     trigger.style.setProperty('--swatch-color', value);
     trigger.style.setProperty('--swatch-opacity', String(opacity / 255));
   };
+  const emitColorInput = () => input.dispatchEvent(new Event('input', { bubbles: true }));
   Object.defineProperty(input, 'value', {
     get() {
       const value = base.get.call(input);
@@ -799,14 +845,21 @@ function enableAlpha(input) {
       base.set.call(input, normalized);
       opacity = nextOpacity;
       updateFields();
-      if (picker) picker.setColor(`${normalized}${nextOpacity.toString(16).padStart(2, '0')}`, true);
+      if (picker) {
+        syncingPicker = true;
+        try {
+          picker.setColor(`${normalized}${nextOpacity.toString(16).padStart(2, '0')}`, true);
+        } finally {
+          syncingPicker = false;
+        }
+      }
     },
   });
   input.addEventListener('input', updateFields);
   hex.addEventListener('input', () => {
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex.value)) return;
     input.value = hex.value;
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    emitColorInput();
   });
   hex.addEventListener('change', () => {
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex.value)) updateFields();
@@ -829,12 +882,13 @@ function enableAlpha(input) {
     },
   });
   picker.on('change', color => {
+    if (syncingPicker) return;
     const value = color.toHEXA().toString();
     if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(value)) return;
     base.set.call(input, value.slice(0, 7));
     opacity = value.length === 9 ? parseInt(value.slice(7, 9), 16) : 255;
     updateFields();
-    input.dispatchEvent(new Event('input', { bubbles: true }));
+    emitColorInput();
   });
   colorPickers.set(input, picker);
   updateFields();
@@ -1053,6 +1107,24 @@ colorGradientEditors.forEach((editor, inputId) => {
   setColorGradient(inputId, null);
 });
 
+['ed-bg-color', 'ed-text-color'].forEach(inputId => {
+  $(inputId).addEventListener('input', () => {
+    const mode = colorGradientEditors.get(inputId).querySelector('.color-gradient-mode');
+    if (mode.value !== 'solid') {
+      mode.value = 'solid';
+      mode.dispatchEvent(new Event('change'));
+    }
+    if (!selectedWinId) return;
+    const win = wm.getWindow(selectedWinId);
+    if (!win) return;
+    const optionKey = inputId === 'ed-bg-color' ? 'bg_color' : 'text_color';
+    const stopsKey = `${optionKey}_stops`;
+    const opts = { ...(win.opts || {}), [optionKey]: $(inputId).value, [stopsKey]: [] };
+    wm.updateWindow(win.id, { opts });
+    if (window.refreshOverrideChips) window.refreshOverrideChips();
+  });
+});
+
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -1063,11 +1135,79 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
   };
 });
 const SPACER_COLOR_DEFAULTS = Panels.SPACER_COLOR_DEFAULTS;
+const SPACER_CATEGORIES = {
+  text: { label: 'Text', kinds: ['bootlog', 'scroller'] },
+  pixel: { label: 'Pixel & retro', kinds: ['matrix', 'static', 'fire', 'starfield', 'rain', 'pipes', 'life', 'htop'] },
+  geometric: { label: 'Geometric', kinds: ['oscilloscope', 'plasma', 'dna', 'metaballs', 'tunnel', 'rotozoom', 'copperbars', 'voronoi', 'wobble', 'floorgrid', 'bump', 'wireframe', 'trails', 'twister', 'fluid', 'waveform'] },
+  interactive: { label: 'Interactive', kinds: ['cursor', 'cursor-ripple', 'cursor-particles', 'cursor-radar', 'chat-interactive'] },
+  simulation: { label: 'Simulations', kinds: ['physics-demo', 'bouncing-ball', 'defrag-map', 'card-cascade'] },
+  debug: { label: 'Debug', kinds: ['pointer-debug'] },
+};
+const SPACER_DESCRIPTIONS = {
+  bootlog: 'Terminal boot sequence', scroller: 'Sine, marquee, and other text motion',
+  matrix: 'Falling glyphs', static: 'Animated pixel noise', fire: 'Classic rising pixel fire',
+  starfield: 'Stars rush toward the viewer', rain: 'Digital rain', pipes: 'Procedural connected pipes',
+  life: 'Conway cellular automaton', htop: 'Live-style system bars',
+  oscilloscope: 'Glowing signal trace', plasma: 'Retro color field', dna: 'Rotating double helix',
+  metaballs: 'Soft merging blobs', tunnel: 'Infinite geometric tunnel', rotozoom: 'Rotating texture field',
+  copperbars: 'Scrolling color bands', voronoi: 'Moving cell boundaries', wobble: 'Waving concentric rings',
+  floorgrid: 'Perspective grid', bump: 'Light moving over a surface', wireframe: 'Rotating 3D shape',
+  trails: 'Flowing particle trails', twister: 'Twisting ribbon', fluid: 'Shaded 3D fluid surface',
+  waveform: 'Animated frequency bars', cursor: 'Pointer-bent dot mesh', 'cursor-ripple': 'Pointer-driven rings and ripples',
+  'cursor-particles': 'Particles respond to pointer', 'cursor-radar': 'Radar sweep follows pointer',
+  'chat-interactive': 'Chat messages become animated energy', 'physics-demo': 'Gravity, orbits, and force vectors',
+  'bouncing-ball': 'A ball bounces under gravity', 'defrag-map': 'A disk map fills and defragments',
+  'card-cascade': 'Layered windows cascade through space', 'pointer-debug': 'Inspect pointer data flow',
+};
+let spacerPickerCategory = 'all';
+
+function renderSpacerPicker() {
+  const select = $('ed-spacer-kind');
+  const categoryHost = $('ed-spacer-categories');
+  const results = $('ed-spacer-results');
+  if (!select || !categoryHost || !results) return;
+  const categories = [{ id: 'all', label: 'All' }, ...Object.entries(SPACER_CATEGORIES).map(([id, category]) => ({ id, label: category.label }))];
+  categoryHost.innerHTML = categories.map(category =>
+    `<button type="button" class="spacer-picker-category${spacerPickerCategory === category.id ? ' active' : ''}" data-category="${category.id}" aria-pressed="${spacerPickerCategory === category.id}">${category.label}</button>`
+  ).join('');
+  const query = $('ed-spacer-search').value.trim().toLowerCase();
+  const options = [...select.options].filter(option => option.value);
+  const matches = options.filter(option => {
+    const categoryId = Object.keys(SPACER_CATEGORIES).find(id => SPACER_CATEGORIES[id].kinds.includes(option.value));
+    return (spacerPickerCategory === 'all' || categoryId === spacerPickerCategory) &&
+      (!query || `${option.textContent} ${SPACER_DESCRIPTIONS[option.value] || ''} ${categoryId || ''}`.toLowerCase().includes(query));
+  });
+  results.innerHTML = matches.length ? matches.map(option => {
+    const color = SPACER_COLOR_DEFAULTS[option.value] || '#5ec8ff';
+    const selected = option.value === select.value;
+    return `<button type="button" class="spacer-picker-card${selected ? ' active' : ''}" role="option" aria-selected="${selected}" data-kind="${option.value}">
+      <div class="spacer-picker-card-preview" style="background:linear-gradient(135deg,#101519,${color})"></div>
+      <strong>${escapeHtml(option.textContent)}</strong>
+      <span>${escapeHtml(SPACER_DESCRIPTIONS[option.value] || 'Animated spacer')}</span>
+    </button>`;
+  }).join('') : '<div class="spacer-picker-empty">No spacers match this search.</div>';
+}
+
+$('ed-spacer-categories').addEventListener('click', event => {
+  const button = event.target.closest('[data-category]');
+  if (!button) return;
+  spacerPickerCategory = button.dataset.category;
+  renderSpacerPicker();
+});
+$('ed-spacer-search').addEventListener('input', renderSpacerPicker);
+$('ed-spacer-results').addEventListener('click', event => {
+  const button = event.target.closest('[data-kind]');
+  if (!button) return;
+  $('ed-spacer-kind').value = button.dataset.kind;
+  $('ed-spacer-kind').dispatchEvent(new Event('change'));
+  renderSpacerPicker();
+});
+renderSpacerPicker();
 
 function snapKeyPanelValue(value) {
-  const grid = Math.max(1, Number(wm && wm.currentGrid ? wm.currentGrid() : 1) || 1);
-  if (grid <= 1) return Math.max(0, Math.round(Number(value) || 0));
-  return Math.max(0, Math.round((Number(value) || 0) / grid) * grid);
+  // keys snap to at most 10px (finer if the window grid is finer) -- never to the 40px window grid
+  const step = Math.max(1, Math.min(10, Number(wm && wm.currentGrid ? wm.currentGrid() : 1) || 1));
+  return Math.max(0, Math.round((Number(value) || 0) / step) * step);
 }
 
 function keyPanelShapeRadius(shape) {
@@ -1106,6 +1246,8 @@ function parseKeyPanelConfig(raw) {
     if (y !== null) item.y = y;
     keys.push(item);
   }
+  const _ks = parseInt($('ed-key-panel-size').value, 10) || 48, _kg = parseInt($('ed-key-panel-gap').value, 10) || 8;
+  keys.forEach((k, i) => { if (!Number.isFinite(k.x)) k.x = i * (_ks + _kg); if (!Number.isFinite(k.y)) k.y = 12; });
   return {
     shape: $('ed-key-panel-shape').value || 'round',
     size: parseInt($('ed-key-panel-size').value, 10) || 48,
@@ -1200,8 +1342,8 @@ function updateSelectedKeyPanelFromEditor() {
   key.color = selectedColorStops ? selectedColorStops[0] : ($('ed-key-panel-selected-color').value || '#7ef7c6');
   if (selectedColorStops) key.color_stops = selectedColorStops;
   else delete key.color_stops;
-  key.x = snapKeyPanelValue($('ed-key-panel-selected-x').value);
-  key.y = snapKeyPanelValue($('ed-key-panel-selected-y').value);
+  key.x = Math.max(0, Math.round(Number($('ed-key-panel-selected-x').value) || 0));
+  key.y = Math.max(0, Math.round(Number($('ed-key-panel-selected-y').value) || 0));
   if (!Number.isFinite(key.x)) delete key.x; else key.x = Math.max(0, key.x);
   if (!Number.isFinite(key.y)) delete key.y; else key.y = Math.max(0, key.y);
   $('ed-key-panel-keys').value = serializeKeyPanelConfig(cfg);
@@ -1238,8 +1380,7 @@ function renderKeyPanelPreview() {
     el.textContent = label;
     const keyColor = key.color || cfg.active_color || '#7ef7c6';
     const inactive = cfg.inactive_color || '#1f2731';
-    const cx = Number.isFinite(Number(key.x)) ? snapKeyPanelValue(Number(key.x)) : idx * (size + gap);
-    const cy = Number.isFinite(Number(key.y)) ? snapKeyPanelValue(Number(key.y)) : 12;
+    const cx = Number(key.x), cy = Number(key.y);
     const borderEnabled = cfg.border !== false;
     const borderWidth = Number.isFinite(Number(cfg.border_width)) ? Number(cfg.border_width) : 1;
     const borderColor = cfg.border_color || '#ffffff';
@@ -1416,6 +1557,8 @@ $('grid-snap-select').addEventListener('change', () => {
   else wrap.style.backgroundSize = px > 1 ? `${px}px ${px}px` : '0 0';
 });
 
+WMEditor.attach(wm, { onCommit: () => refreshWinList(), onRefresh: () => refreshWinEditor() });
+
 function fitStage() {
   const wrap = $('layout-stage-wrap');
   const inner = $('layout-stage-inner');
@@ -1465,8 +1608,8 @@ function refreshWinEditor() {
   $('ed-x').value = win.x; $('ed-y').value = win.y;
   $('ed-w').value = win.w; $('ed-h').value = win.h;
   $('ed-title').value = win.title;
-  $('ed-text-color').value = win.opts && win.opts.text_color || '#d8dee2';
-  $('ed-bg-color').value = win.opts && win.opts.bg_color || '#0a0c0d';
+  $('ed-text-color').value = (win.opts && win.opts.text_color) || wm.getTheme().text_color || '#d8dee2';
+  $('ed-bg-color').value = (win.opts && win.opts.bg_color) || wm.getTheme().bg_color || '#0a0c0d';
   $('ed-font-size').value = win.opts && win.opts.font_size || 13;
   $('ed-font-family').value = win.opts && win.opts.font_family || 'monospace';
   $('ed-social-lines').value = win.opts && win.opts.social_lines || 'twitter: @vanillyn_net\ndiscord: @vanillyn';
@@ -1499,18 +1642,44 @@ function refreshWinEditor() {
   const isSpacer = win.panel === 'spacer';
   $('ed-spacer-kind-row').style.display = isSpacer ? '' : 'none';
   $('ed-spacer-color-row').style.display = isSpacer ? '' : 'none';
-  $('ed-wireframe-shape-row').style.display = (isSpacer && win.opts && win.opts.spacer_kind === 'wireframe') ? '' : 'none';
-  const isScroller = isSpacer && win.opts && win.opts.spacer_kind === 'scroller';
+  $('ed-spacer-bg-row').style.display = isSpacer ? '' : 'none';
+  const savedSpacerKind = win.opts && win.opts.spacer_kind;
+  const spacerKind = savedSpacerKind === 'typewriter' ? 'bootlog' : savedSpacerKind === 'torus' ? 'wireframe' : savedSpacerKind;
+  $('ed-wireframe-shape-row').style.display = (isSpacer && spacerKind === 'wireframe') ? '' : 'none';
+  const isScroller = isSpacer && spacerKind === 'scroller';
+  const isCursorSpacer = isSpacer && ['cursor', 'cursor-ripple', 'cursor-particles', 'cursor-radar'].includes(spacerKind);
+  $('ed-cursor-style-options').style.display = isCursorSpacer ? '' : 'none';
   $('ed-scroller-style-row').style.display = isScroller ? '' : 'none';
   $('ed-scroller-state-row').style.display = isScroller ? '' : 'none';
   $('ed-scroller-messages-row').style.display = isScroller ? '' : 'none';
 
   if (isSpacer) {
-    $('ed-spacer-kind').value = (win.opts && win.opts.spacer_kind) || 'bootlog';
+    $('ed-spacer-kind').value = spacerKind || 'bootlog';
     $('ed-spacer-color').value = (win.opts && win.opts.spacer_color) || SPACER_COLOR_DEFAULTS[$('ed-spacer-kind').value] || '#00ff66';
+    $('ed-spacer-bg-color').value = (win.opts && win.opts.spacer_bg_color) || '#000000';
+    renderSpacerPicker();
   }
-  if (win.opts && win.opts.spacer_kind === 'wireframe') {
-    $('ed-wireframe-shape').value = win.opts.spacer_wireframe_shape || 'cube';
+  if (isSpacer) {
+    const spacerOpts = win.opts || {};
+    const setRange = (id, option, fallback, suffix) => {
+      const input = $(id);
+      input.value = spacerOpts[option] ?? fallback;
+      $(`${id}-value`).textContent = `${input.value}${suffix}`;
+    };
+    setRange('ed-cursor-spacing', 'spacer_cursor_spacing', 28, ' px');
+    setRange('ed-cursor-dot-size', 'spacer_cursor_dot_size', 2, ' px');
+    setRange('ed-cursor-spacing-opacity', 'spacer_cursor_spacing_opacity', 50, '%');
+    setRange('ed-cursor-marker-size', 'spacer_cursor_marker_size', 12, ' px');
+    setRange('ed-cursor-radius', 'spacer_cursor_radius', 180, ' px');
+    setRange('ed-cursor-strength', 'spacer_cursor_strength', 70, '%');
+    setRange('ed-cursor-speed', 'spacer_cursor_speed', 100, '%');
+    $('ed-cursor-spacing-color').value = spacerOpts.spacer_cursor_spacing_color || '#31404a';
+    $('ed-cursor-accent-color').value = spacerOpts.spacer_cursor_accent_color ||
+      spacerOpts.spacer_color || SPACER_COLOR_DEFAULTS[spacerKind] || '#5ec8ff';
+    $('ed-cursor-marker').checked = spacerOpts.spacer_cursor_marker !== false;
+  }
+  if (spacerKind === 'wireframe') {
+    $('ed-wireframe-shape').value = (savedSpacerKind === 'torus' ? 'torus' : win.opts.spacer_wireframe_shape) || 'cube';
   }
   if (isScroller) {
     $('ed-scroller-style').value = win.opts.spacer_scroller_style || 'sine';
@@ -1524,13 +1693,14 @@ function refreshWinEditor() {
   $('ed-wos-url-row').style.display = win.panel === 'words' ? '' : 'none';
   $('ed-key-panel-row').style.display = win.panel === 'key_panel' ? '' : 'none';
   $('ed-canvas-size-row').style.display = win.panel === 'canvas' ? '' : 'none';
-  const wo = win.opts || {};
+  const wo = Object.assign({}, wm.getTheme(), win.opts || {});
   colorGradientFields.forEach(([inputId, optionKey]) => {
     if (inputId.startsWith('ed-') && inputId !== 'ed-key-panel-selected-color') {
       setColorGradient(inputId, wo[optionKey]);
     }
   });
   $('ed-border-mode').value = wo.border_mode || 'default';
+  $('ed-box-style').value = wo.box_style || 'single';
   setGradientStops($('ed-border-stops'), wo.border_stops || [wo.border_color || '#ffffff', wo.border_color2 || '#7ef7c6']);
   $('ed-title-color-on').checked = !!wo.title_color;
   $('ed-title-color').value = wo.title_color || '#0a0d0a';
@@ -1565,10 +1735,11 @@ $('btn-apply-edit').onclick = () => {
       inputId === 'ed-bg-color' ||
       inputId === 'ed-text-color' ||
       (win.panel === 'spacer' && inputId === 'ed-spacer-color') ||
-      (win.panel === 'key_panel' && inputId.startsWith('ed-key-panel-'));
+      (win.panel === 'key_panel' && !window.KeyPanelEditor && inputId.startsWith('ed-key-panel-'));
     if (!appliesToPanel) return;
     const stops = selectedColorGradient(inputId);
     if (stops) opts[optionKey] = stops;
+    else if (inputId === 'ed-bg-color' || inputId === 'ed-text-color') opts[optionKey] = [];
     else delete opts[optionKey];
   });
   opts.font_size = parseInt($('ed-font-size').value, 10) || 13;
@@ -1577,6 +1748,19 @@ $('btn-apply-edit').onclick = () => {
     opts.spacer_kind = $('ed-spacer-kind').value;
     opts.spacer_color = selectedColorGradient('ed-spacer-color')?.[0] ||
       $('ed-spacer-color').value || SPACER_COLOR_DEFAULTS[opts.spacer_kind] || '#00ff66';
+    opts.spacer_bg_color = $('ed-spacer-bg-color').value || '#000000';
+    if (['cursor', 'cursor-ripple', 'cursor-particles', 'cursor-radar'].includes(opts.spacer_kind)) {
+      opts.spacer_cursor_spacing = Number($('ed-cursor-spacing').value);
+      opts.spacer_cursor_dot_size = Number($('ed-cursor-dot-size').value);
+      opts.spacer_cursor_spacing_opacity = Number($('ed-cursor-spacing-opacity').value);
+      opts.spacer_cursor_marker_size = Number($('ed-cursor-marker-size').value);
+      opts.spacer_cursor_spacing_color = $('ed-cursor-spacing-color').value;
+      opts.spacer_cursor_accent_color = $('ed-cursor-accent-color').value;
+      opts.spacer_cursor_radius = Number($('ed-cursor-radius').value);
+      opts.spacer_cursor_strength = Number($('ed-cursor-strength').value);
+      opts.spacer_cursor_speed = Number($('ed-cursor-speed').value);
+      opts.spacer_cursor_marker = $('ed-cursor-marker').checked;
+    }
     if (opts.spacer_kind === 'wireframe') {
       opts.spacer_wireframe_shape = $('ed-wireframe-shape').value;
     }
@@ -1593,7 +1777,7 @@ $('btn-apply-edit').onclick = () => {
   }
   if (win.panel === 'socials') opts.social_lines = $('ed-social-lines').value.trim();
   if (win.panel === 'words') opts.wos_url = $('ed-wos-url').value.trim() || 'https://wos.gg/';
-  if (win.panel === 'key_panel') {
+  if (win.panel === 'key_panel' && !window.KeyPanelEditor) {
     const keyCfg = parseKeyPanelConfig($('ed-key-panel-keys').value);
     opts.shape = $('ed-key-panel-shape').value || 'round';
     opts.size = parseInt($('ed-key-panel-size').value, 10) || 48;
@@ -1620,6 +1804,7 @@ $('btn-apply-edit').onclick = () => {
     opts.border_stops = stops;
   }
   if (bm === 'default') delete opts.border_stops;
+  if (bm === 'box') opts.box_style = $('ed-box-style').value; else delete opts.box_style;
   if (win.panel === 'spacer') opts.spacer_pixel = parseInt($('ed-spacer-pixel').value, 10) || 2;
   if (win.panel === 'notepad') opts.notepad_markdown = $('ed-notepad-md').checked;
   if (win.panel === 'latest') opts.latest_show = $('ed-latest-show').value;
@@ -1800,6 +1985,10 @@ function handleMessage(msg) {
       break;
     case 'status': state.status = msg.value; renderStatus(); broadcastToAllPanels('status', { value: msg.value }); break;
     case 'scene': state.scene = msg.value; break;
+    case 'pointer':
+      state.pointer = msg.pointer;
+      broadcastToAllPanels('pointer', msg.pointer);
+      break;
     case 'message': state.message = msg.value; broadcastToAllPanels('message', { value: msg.value }); break;
     case 'stats': state.stats = msg; renderStats(); break;
     case 'tts_state': state.tts = msg.tts; renderTts(); broadcastToAllPanels('tts_state', msg.tts); break;
@@ -1850,6 +2039,7 @@ function renderAll() {
   renderTwitch(); renderObs(); renderChat(); renderCommands(); renderMood();
   renderAds(); renderWords(); renderCanvas();
   if (state.key_panel) broadcastToAllPanels('key_panel', state.key_panel);
+  if (state.pointer) broadcastToAllPanels('pointer', state.pointer);
   if (state.message !== undefined) broadcastToAllPanels('message', { value: state.message });
   Object.entries(state.notepads || {}).forEach(([id, value]) => broadcastToAllPanels('notepad', { id, value }));
   if (state.latest) broadcastToAllPanels('latest', state.latest);
@@ -2145,7 +2335,9 @@ $('btn-cmd-clear').onclick = () => { $('cmd-trigger').value = ''; $('cmd-respons
 setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('en-GB'); }, 1000);
 function refreshSpacerRowsFromDropdown() {
   const kind = $('ed-spacer-kind').value;
+  const cursorKind = ['cursor', 'cursor-ripple', 'cursor-particles', 'cursor-radar'].includes(kind);
   $('ed-wireframe-shape-row').style.display = kind === 'wireframe' ? '' : 'none';
+  $('ed-cursor-style-options').style.display = cursorKind ? '' : 'none';
   const isScroller = kind === 'scroller';
   $('ed-scroller-style-row').style.display = isScroller ? '' : 'none';
   $('ed-scroller-state-row').style.display = isScroller ? '' : 'none';
@@ -2164,6 +2356,18 @@ $('ed-spacer-kind').addEventListener('change', () => {
   $('ed-spacer-color').value = SPACER_COLOR_DEFAULTS[$('ed-spacer-kind').value] || '#00ff66';
   setColorGradient('ed-spacer-color', null);
   refreshSpacerRowsFromDropdown();
+  renderSpacerPicker();
+});
+[
+  ['ed-cursor-spacing', ' px'],
+  ['ed-cursor-dot-size', ' px'],
+  ['ed-cursor-spacing-opacity', '%'],
+  ['ed-cursor-marker-size', ' px'],
+  ['ed-cursor-radius', ' px'],
+  ['ed-cursor-strength', '%'],
+  ['ed-cursor-speed', '%'],
+].forEach(([id, suffix]) => {
+  $(id).addEventListener('input', () => { $(`${id}-value`).textContent = `${$(id).value}${suffix}`; });
 });
 function loadOverlay(name) {
   currentOverlay = name;
@@ -2175,7 +2379,7 @@ function loadOverlay(name) {
   $('overlay-url').textContent = `obs url: http://${location.host}/overlay?layout=${name}`;
 }
 function renderOverlaySelect() {
-  const names = Object.keys(state.wm_layouts || {});
+  const names = Object.keys(state.wm_layouts || {}).filter(n => !n.startsWith('__'));
   if (!names.includes('main')) names.unshift('main');
   $('overlay-select').innerHTML = names.map(n => `<option value="${n}">${n}</option>`).join('');
   $('overlay-select').value = currentOverlay;
@@ -2235,6 +2439,10 @@ $('bulk-spacer-apply').onclick = () => bulkOpts((w, o) => {
   if (stops) o.spacer_color_stops = stops;
   else delete o.spacer_color_stops;
 });
+$('bulk-spacer-bg-apply').onclick = () => bulkOpts((w, o) => {
+  if (w.panel !== 'spacer') return false;
+  o.spacer_bg_color = $('bulk-spacer-bg').value || '#000000';
+});
 
 let npTimer = null;
 $('ed-notepad-text').addEventListener('input', () => {
@@ -2253,6 +2461,9 @@ connect();
 window.addEventListener('resize', fitStage);
 setTimeout(fitStage, 50);
 </script>
+<script src="/ui-tabs.js"></script>
+<script src="/editor-extras.js"></script>
+<script src="/keypanel-editor.js"></script>
 
 </body>
 </html>
