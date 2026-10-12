@@ -17,7 +17,7 @@ from config import (
     log, BASE_DIR, OVERLAY_DIR, OVERLAY_SEARCH_DIRS, PNGTUBER_DIR, PNGTUBER_STATES,
     MEDIA_DIR, MEDIA_EXTS, MV_CACHE_DIR, HTTP_PORT, LAYOUTS_DIR,
     TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET,
-    CANVAS_PUBLIC_PORT, CANVAS_PUBLIC_BASE_URL, CANVAS_PUBLIC_COOKIE,
+    CANVAS_PUBLIC_PORT, CANVAS_PUBLIC_BASE_URL, CANVAS_PUBLIC_COOKIE, MUSIC_DIR,
     CANVAS_PUBLIC_REDIRECT_URI, CANVAS_PUBLIC_TWITCH_SCOPE,
 )
 from canvas import place_public_pixel, get_credits, is_unlimited
@@ -39,6 +39,15 @@ def _resolve_overlay_file(filename: str) -> pathlib.Path | None:
     return None
 
 
+class SidecarHandler(tornado.web.StaticFileHandler):
+    """serves only video/lyric sidecars from the music dir (supports range requests)."""
+    ALLOWED = {".mp4", ".webm", ".mkv", ".mov", ".lrc", ".ttml"}
+
+    def validate_absolute_path(self, root, absolute_path):
+        if pathlib.Path(absolute_path).suffix.lower() not in self.ALLOWED:
+            raise tornado.web.HTTPError(404)
+        return super().validate_absolute_path(root, absolute_path)
+    
 class OverlayHandler(tornado.web.RequestHandler):
     """serves an overlay html file, searching across OVERLAY_SEARCH_DIRS.
     `directory`, if given, is tried first (kept for handlers that used to
@@ -498,7 +507,7 @@ def start_http_server() -> None:
         (r"/redeem-player", OverlayHandler, {"filename": "redeem-player.html"}),
         (r"/media/(.*)", tornado.web.StaticFileHandler, {"path": str(MEDIA_DIR)}),
         (r"/media-list", MediaListHandler),
-        (r"/mv-cache/(.*)", tornado.web.StaticFileHandler, {"path": str(MV_CACHE_DIR)}),
+        (r"/music-media/(.*)", SidecarHandler, {"path": str(MUSIC_DIR)}),
         (r"/tts-voices", TTSVoicesHandler),
         (r"/wos-login", OverlayHandler, {"filename": "wos-login.html"}),
         (r"/state", CommandsHandler),

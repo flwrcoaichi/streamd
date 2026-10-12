@@ -23,7 +23,7 @@ from twitch_api import (
     resolve_twitch_user_id, snooze_next_ad, set_channel_title, set_channel_category,
     set_channel_tags, add_channel_tag,
 )
-
+from mpd_bridge import media_control, request_song
 
 def normalize_key_name(name: object) -> str:
     text = str(name or "").strip().lower().replace("key.", "")

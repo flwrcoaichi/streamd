@@ -7,69 +7,9 @@ from config import log, REWARDS_PATH, CHECKINS_PATH, REDEEMS_DIR, MEDIA_DIR
 from state import state
 from broadcast import broadcast_sync, send_chat
 from conditions import check_conditions
-
+from mpd_bridge import media_control, request_song
+    
 _DEFAULT_REWARDS = {
-    "first in chat": {
-        "enabled": True,
-        "action": "first_in_chat",
-        "message": "{user} was first in chat today! 🎉",
-        "description": "lets the redeemer know they were first in chat",
-    },
-    "check-in": {
-        "enabled": True,
-        "action": "check_in",
-        "message": "{user} has checked in {count} time(s)!",
-        "description": "counts how many times this person has checked in",
-    },
-    "leave a note": {
-        "enabled": True,
-        "action": "write_file",
-        "message": "{user} left a note on the desktop!",
-        "description": "drops a timestamped text file on disk",
-    },
-    "text to speech": {
-        "enabled": True,
-        "action": "tts",
-        "message": "",
-        "voice": "",
-        "description": "reads the redeemer's input aloud with TTS",
-    },
-    "snooze ad break": {
-        "enabled": True,
-        "action": "snooze_ad",
-        "message": "{user} pushed the next ad back a few minutes!",
-        "description": "delays the next automatic mid-roll ad by ~5 minutes",
-    },
-    "flag gamble": {
-        "enabled": True,
-        "action": "flag_gamble",
-        "message": "",
-        "description": "50/50 chance to gain or lose a flag",
-    },
-    "flag jackpot": {
-        "enabled": True,
-        "action": "flag_jackpot",
-        "message": "",
-        "description": "1% +3 flags, 1% -half flags, 20% -1 flag, 70% nothing",
-    },
-    "song request": {
-        "enabled": True,
-        "action": "song_request",
-        "message": "",
-        "description": "searches YouTube Music for the redeemer's input and plays it immediately",
-    },
-    "canvas pixel": {
-        "enabled": True,
-        "action": "canvas_credit_small",
-        "message": "{user} earned 1 canvas pixel!",
-        "description": f"grants 1 pixel credit for the collaborative canvas",
-    },
-    "canvas pixels (10)": {
-        "enabled": True,
-        "action": "canvas_credit_large",
-        "message": "{user} earned 10 canvas pixels!",
-        "description": "grants 10 pixel credits for the collaborative canvas",
-    },
 }
 
 
@@ -177,9 +117,6 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
 
     action = cfg.get("action", "message")
     template = cfg.get("message", "")
-
-    
-    # message) so it's handled and logged separately from the shared
     
     if action == "song_request":
         query = (user_input or "").strip()

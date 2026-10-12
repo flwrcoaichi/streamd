@@ -379,7 +379,7 @@ def _fetch_lrcmux(artist: str, title: str) -> dict | None:
         return None
 
 
-def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -> dict:
+def _fetch_lyrics_full(artist, title, duration=None, uri=None) -> dict:
     """main lyrics fetch. returns a dict ready to broadcast as a lyrics event:
     {
         found: bool,
@@ -399,7 +399,20 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
         "synced_words": [],
     }
 
-    
+    if uri:
+        from library import find_sidecars
+        side = find_sidecars(uri)
+        payload["video_url"] = side["lyric_video_url"]
+        lines = _parse_lrc(side["lrc"].read_text(encoding="utf-8", errors="replace")) if side["lrc"] else []
+        if lines:
+            payload["synced_lines"] = lines
+            payload["plain_lines"] = [l["text"] for l in lines if l["text"]]
+            if side["ttml"]:
+                payload["synced_words"] = _parse_ttml_words(
+                    side["ttml"].read_text(encoding="utf-8", errors="replace"))
+            payload["found"] = True
+            return payload
+        
     lrcmux_data = _fetch_lrcmux(artist, title)
     if lrcmux_data:
         ttml_text = lrcmux_data.get("ttml") or ""
@@ -467,7 +480,7 @@ def _fetch_lyrics_full(artist: str, title: str, duration: float | None = None) -
     return payload
 
 
-def fetch_and_broadcast_lyrics(artist: str, title: str, user: str | None = None) -> None:
+def fetch_and_broadcast_lyrics(artist: str, title: str, user: str | None = None, uri=None) -> None:
     """fetches lyrics in a background thread and broadcasts a `lyrics` event."""
     music = state.data.get("music", {})
     duration = music.get("duration") or None
@@ -491,7 +504,7 @@ def handle_lyrics_command(user: str) -> None:
                          "reason": "nothing playing right now",
                          "plain_lines": [], "synced_lines": [], "synced_words": []})
         return
-    fetch_and_broadcast_lyrics(artist, title, user=user)
+    fetch_and_broadcast_lyrics(artist, title, user=user, uri=music.get("uri"))
 
 
 def dispatch_chat_command(user: str, text: str, badges: list | None = None) -> None:

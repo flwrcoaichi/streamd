@@ -134,131 +134,6 @@ const Panels = (() => {
   }
 
  
-  const now_playing = {
-    mount(body, win) {
-      body.innerHTML = `
-        <div class="np-bg"><div class="np-art"></div><video class="np-video" autoplay loop muted playsinline></video><div class="np-grad"></div></div>
-        <div class="np-fg">
-          <span class="np-status">▶</span>
-          <span class="np-track">—</span>
-          <span class="np-artist"></span>
-        </div>`;
-      return {
-        art: body.querySelector('.np-art'),
-        video: body.querySelector('.np-video'),
-        track: body.querySelector('.np-track'),
-        artist: body.querySelector('.np-artist'),
-        status: body.querySelector('.np-status'),
-        lastKey: '',
-      };
-    },
-    onState(h, key, msg) {
-      if (key === 'music') {
-        const m = msg;
-        h.track.textContent = m.title || '—';
-        h.artist.textContent = m.artist ? `— ${m.artist}` : '';
-        h.status.textContent = m.playing ? '▶' : '⏸';
-        const k = `${m.title}::${m.artist}`;
-        if (k !== h.lastKey) {
-          h.lastKey = k;
-          if (m.title && m.title !== '—') {
-            h.art.style.backgroundImage = `url('/art.png?t=${Date.now()}')`;
-          } else {
-            h.art.style.backgroundImage = '';
-          }
-        }
-      } else if (key === 'music_video') {
-        if (msg.url) {
-          h.video.src = msg.url;
-          h.video.classList.add('active');
-        } else {
-          h.video.classList.remove('active');
-          h.video.removeAttribute('src');
-        }
-      }
-    },
-  };
-
- 
-  const lyrics = {
-    mount(body, win) {
-      body.classList.add('wm-term');
-      const box = $create('div', 'lyrics-box');
-      body.appendChild(box);
-      return { box, data: { synced_lines: [], synced_words: [], plain_lines: [] }, raf: null, musicState: { playing: false, duration: 0, position: 0, _updatedAt: 0 } };
-    },
-    onState(h, key, msg) {
-      if (key === 'music') {
-        h.musicState = { playing: msg.playing, duration: Number(msg.duration) || 0, position: Number(msg.position) || 0, _updatedAt: performance.now() };
-      } else if (key === 'lyrics') {
-        if (!msg.found) {
-          h.data = { synced_lines: [], synced_words: [], plain_lines: [] };
-          h.box.innerHTML = '<span class="wm-dim">no lyrics</span>';
-          return;
-        }
-        h.data = {
-          synced_lines: msg.synced_lines || [],
-          synced_words: msg.synced_words || [],
-          plain_lines: msg.plain_lines || msg.lines || [],
-        };
-        startLoop(h);
-      }
-    },
-    unmount(h) { if (h.raf) cancelAnimationFrame(h.raf); },
-  };
-  function elapsedSeconds(h) {
-    if (!h.musicState.playing) return h.musicState.position;
-    return h.musicState.position + (performance.now() - h.musicState._updatedAt) / 1000;
-  }
-  function activeLineIndex(h, elapsed) {
-    const lines = h.data.synced_lines;
-    let idx = -1;
-    for (let i = 0; i < lines.length; i++) { if (lines[i].time <= elapsed) idx = i; else break; }
-    return idx;
-  }
-  function renderLyricsDOM(h) {
-    const elapsed = elapsedSeconds(h);
-    const lines = h.data.synced_lines, words = h.data.synced_words, plain = h.data.plain_lines;
-    let displayLines = [], activeIdx = -1;
-    const ABOVE = 2, BELOW = 3;
-    if (lines.length) {
-      activeIdx = activeLineIndex(h, elapsed);
-      const start = Math.max(0, activeIdx - ABOVE);
-      const end = Math.min(lines.length - 1, (activeIdx < 0 ? BELOW - 1 : activeIdx) + BELOW);
-      for (let i = start; i <= end; i++) displayLines.push({ idx: i, text: lines[i].text, time: lines[i].time });
-    } else if (plain.length) {
-      const dur = h.musicState.duration || 180;
-      const prog = Math.min(1, Math.max(0, elapsed / dur));
-      const mid = Math.floor(prog * plain.length);
-      const start = Math.max(0, mid - ABOVE), end = Math.min(plain.length - 1, mid + BELOW);
-      for (let i = start; i <= end; i++) displayLines.push({ idx: i, text: plain[i], time: null });
-      activeIdx = mid;
-    }
-    if (!displayLines.length) { h.box.innerHTML = '<span class="wm-dim">—</span>'; return; }
-    h.box.innerHTML = '';
-    for (const dl of displayLines) {
-      const lineEl = $create('div', 'lyric-line' + (dl.idx === activeIdx ? ' active' : (dl.idx === activeIdx + 1 ? ' next' : '')));
-      if (dl.idx === activeIdx && words.length && dl.text) {
-        const lineStart = dl.time, nextLine = lines[dl.idx + 1], lineEnd = nextLine ? nextLine.time : Infinity;
-        const lineWords = words.filter(w => w.time >= lineStart && w.time < lineEnd);
-        if (lineWords.length) {
-          for (const w of lineWords) {
-            const span = $create('span', 'lyric-word' + (elapsed >= w.time ? ' sung' : ''));
-            span.textContent = w.word + ' ';
-            lineEl.appendChild(span);
-          }
-        } else lineEl.textContent = dl.text;
-      } else lineEl.textContent = dl.text || ' ';
-      h.box.appendChild(lineEl);
-    }
-  }
-  function startLoop(h) {
-    if (h.raf) cancelAnimationFrame(h.raf);
-    const tick = () => { renderLyricsDOM(h); h.raf = requestAnimationFrame(tick); };
-    tick();
-  }
-
- 
   const status = {
     mount(body, win) {
       body.classList.add('wm-term');
@@ -478,7 +353,12 @@ const Panels = (() => {
  
  
  
- 
+ function syncVideo(video, m) {
+  if (!video || !video.getAttribute('src')) return;
+  if (m.playing) { if (video.paused) video.play().catch(() => {}); } else video.pause();
+  const target = Number(m.position) || 0;
+  if (Math.abs(video.currentTime - target) > 0.5) video.currentTime = target;
+}
  
   const words = {
     mount(body, win) {
@@ -3063,8 +2943,7 @@ const Panels = (() => {
     applyOpts(h, win) { h.win = win; applyTextOpts(h.body, win.opts); latestRender(h); },
   };
 
-  return {
-    now_playing, lyrics, status, socials, message_bar, screen, chat, extra, spacer,
+  return {status, socials, message_bar, screen, chat, extra, spacer,
     key_panel, alerts, redeem_player, pngtuber, words, tts_transcript, ad_warning, canvas,
     notepad, latest, status_text, cacheMsg, escapeHtml, SPACER_COLOR_DEFAULTS,
   };
