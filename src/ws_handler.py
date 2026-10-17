@@ -23,8 +23,9 @@ from twitch_api import (
     resolve_twitch_user_id, snooze_next_ad, set_channel_title, set_channel_category,
     set_channel_tags, add_channel_tag,
 )
-from mpd_bridge import media_control, request_song
 
+from player_bridge import media_control, list_playlists, load_playlist
+from song_requests import add_song_credits
 def normalize_key_name(name: object) -> str:
     text = str(name or "").strip().lower().replace("key.", "")
     aliases = {
@@ -550,21 +551,20 @@ async def ws_handler(ws) -> None:
                     await broadcast({"type": "pngtuber", "pngtuber": state.data["pngtuber"]})
 
                 elif cmd and cmd.startswith("media_"):
-                    from ytmusic_bridge import media_control
                     media_control(cmd[len("media_"):])
 
-                elif cmd == "request_song":
-                    from ytmusic_bridge import request_song
-                    query = val.strip()
-                    user = msg.get("user", "someone")
-                    if query:
-                        ok, result_message = await asyncio.to_thread(request_song, query, user)
-                        await broadcast({
-                            "type": "redeem_alert", "reward": "song request",
-                            "user": user, "message": result_message,
-                        })
-                        if ok:
-                            send_chat(result_message)
+                elif cmd == "playlist_list":
+                    await ws.send(json.dumps({"type": "playlists", "names": list_playlists()}))
+
+                elif cmd == "playlist_load":
+                    await asyncio.to_thread(load_playlist, str(val), bool(msg.get("shuffle")), bool(msg.get("skip")))
+
+                elif cmd == "song_grant":
+                    user = str(msg.get("user", "")).strip()
+                    amount = int(msg.get("amount", 0) or 0)
+                    if user and amount:
+                        total = add_song_credits(user, amount)
+                        await ws.send(json.dumps({"type": "song_grant_result", "user": user, "credits": total}))
 
                 elif cmd and cmd.startswith("obs_"):
                     asyncio.create_task(obs_dispatch(cmd, msg))
@@ -659,12 +659,14 @@ async def ws_handler(ws) -> None:
                 elif cmd == "set_title":
                     title = msg.get("value", "").strip()
                     if title:
-                        await asyncio.to_thread(set_channel_title, title, True)
+                        ok = await asyncio.to_thread(set_channel_title, title, True)
+                        await ws.send(json.dumps({"type": "twitch_update_result", "field": "title", "ok": ok}))
 
                 elif cmd == "set_category":
                     name = msg.get("value", "").strip()
                     if name:
-                        await asyncio.to_thread(set_channel_category, name)
+                        ok = await asyncio.to_thread(set_channel_category, name)
+                        await ws.send(json.dumps({"type": "twitch_update_result", "field": "category", "ok": ok}))
 
                 elif cmd == "set_tags":
                     tags = msg.get("value", [])

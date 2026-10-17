@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>song requests</title>
+<style>
+:root{color-scheme:dark;--ink:#e8edf1;--bg:#0a0c0d;--dim:#77828a;--amber:#ffb238}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Courier New',ui-monospace,monospace}
+header{display:flex;gap:12px;align-items:center;padding:14px 18px;border-bottom:1px solid #252c31}
+header h1{font-size:15px;margin:0;margin-right:auto;letter-spacing:.1em;text-transform:lowercase}
+button,input{font:inherit;color:var(--ink);background:none;border:1px solid var(--ink);padding:7px 12px}
+button{cursor:pointer;text-transform:lowercase}button:hover{background:var(--ink);color:var(--bg)}
+main{max-width:720px;margin:0 auto;padding:18px}
+form{display:flex;gap:8px}form input{flex:1;min-width:0}
+#msg{min-height:20px;margin:10px 0;color:var(--amber);font-size:13px}#msg.bad{color:#ff6b6b}
+ul{list-style:none;margin:0;padding:0}
+li{display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #1a1f23}
+li img{width:80px;height:45px;object-fit:cover;flex:none;background:#11161d}
+.t{flex:1;min-width:0}.t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t span,.st{color:var(--dim);font-size:12px}
+h2{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:26px 0 6px}
+</style></head><body>
+<header><h1>song requests</h1><span id="credits"></span><button id="auth" type="button">sign in with twitch</button></header>
+<main>
+  <form id="f"><input id="q" placeholder="search youtube, or paste a link" autocomplete="off"><button>go</button></form>
+  <div id="msg"></div>
+  <ul id="results"></ul>
+  <h2>queue</h2>
+  <ul id="queue"></ul>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let user=null;
+const api=async(u,o)=>{const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'request failed');return d};
+const say=(t,bad)=>{$('msg').textContent=t;$('msg').className=bad?'bad':''};
+const isLink=s=>/youtu\.?be/i.test(s)||/^[\w-]{11}$/.test(s.trim());
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!==undefined)e.textContent=txt;return e};
+
+async function session(){
+  let credits=0;
+  try{const d=await api('/requests/session');user=d.username;credits=d.unlimited?'∞':d.credits}catch(e){user=null}
+  $('auth').textContent=user||'sign in with twitch';
+  $('credits').textContent=user?'credits: '+credits:'';
+}
+$('auth').onclick=async()=>{
+  if(!user){location.href='/login';return}
+  await api('/logout',{method:'POST'}).catch(()=>{});user=null;session();
+};
+async function request(query){
+  try{const d=await api('/requests/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})});
+    say(d.message);$('results').replaceChildren();$('q').value='';}
+  catch(e){say(e.message,true)}
+  session();queue();
+}
+$('f').onsubmit=async e=>{
+  e.preventDefault();
+  const q=$('q').value.trim();if(!q)return;
+  if(!user){say('sign in with twitch first',true);return}
+  if(isLink(q)){request(q);return}
+  say('searching…');
+  try{
+    const d=await api('/requests/search?q='+encodeURIComponent(q));
+    say(d.results.length?'':'no results');
+    $('results').replaceChildren(...d.results.map(r=>{
+      const li=el('li'),img=el('img');img.src=r.thumbnail;img.alt='';
+      const t=el('div','t');t.append(el('b','',r.title),el('span','',r.channel));
+      const b=el('button','','request');b.onclick=()=>request(r.video_id);
+      li.append(img,t,b);return li;
+    }));
+  }catch(err){say(err.message,true)}
+};
+async function queue(){
+  try{
+    const d=await api('/requests/queue');
+    const rows=d.requests.filter(r=>r.status!=='played').map(r=>{
+      const li=el('li'),t=el('div','t');
+      t.append(el('b','',r.title),el('span','','requested by '+r.user));
+      li.append(t,el('span','st',r.status==='failed'?'failed: '+r.error:r.status));return li;
+    });
+    $('queue').replaceChildren(...(rows.length?rows:[el('li','st','nothing requested right now')]));
+  }catch(e){}
+}
+session();queue();setInterval(queue,5000);
+</script></body></html>

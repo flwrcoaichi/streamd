@@ -136,6 +136,8 @@
   .cmdtable tr:hover td { background: var(--panel-2); cursor: pointer; }
   .cmdtable .trig { color: var(--amber); font-weight: 700; }
   .cmdtable .del { color: var(--text-dimmer); cursor: pointer; } .cmdtable .del:hover { color: var(--red); }
+  .editor-check { display: flex; align-items: center; gap: 7px; color: var(--text-dim); font-size: 11px; }
+  .editor-check input { width: auto; }
   .scenelist { display: flex; flex-direction: column; gap: 4px; max-height: 160px; overflow-y: auto; }
   .scene-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border: 1px solid var(--line); border-radius: 2px; cursor: pointer; font-size: 12px; color: var(--text-dim); }
   .scene-item:hover { border-color: var(--amber-dim); color: var(--text); }
@@ -650,6 +652,7 @@ Space|#8be9fd|pill|20|12</textarea>
         <label>show</label>
         <select id="ed-latest-show"><option value="both">follower + sub</option><option value="follower">follower only</option><option value="sub">sub only</option></select>
       </div>
+      <div class="field" id="ed-music-row" style="display:none;"></div>
       <button id="btn-apply-edit">apply</button>
       <button id="btn-remove-selected" style="color:var(--red); border-color:var(--red-dim);">remove window</button>
     </div>
@@ -685,12 +688,14 @@ Space|#8be9fd|pill|20|12</textarea>
     <div class="stat"><div class="stat-label"><span>wpm</span><span id="stat-wpm-val">…</span></div><div class="stat-track"><div class="stat-fill" id="stat-wpm"></div></div></div>
   </div>
 
-  <div class="pane pane-3">
+  <div class="pane pane-6">
     <div class="pane-title">channel</div>
     <div class="kv"><span class="k">twitch</span><span class="v" id="kv-twitch">—</span></div>
     <div class="kv"><span class="k">followers</span><span class="v" id="kv-followers">…</span></div>
     <div class="kv"><span class="k">subscribers</span><span class="v" id="kv-subs">…</span></div>
     <div class="kv"><span class="k">viewers</span><span class="v" id="kv-viewers">…</span></div>
+    <div class="field"><label for="twitch-title-input">stream title</label><div class="row"><input type="text" id="twitch-title-input" placeholder="stream title"><button id="btn-twitch-title">set</button></div></div>
+    <div class="field"><label for="twitch-category-input">category</label><div class="row"><input type="text" id="twitch-category-input" placeholder="Twitch category"><button id="btn-twitch-category">set</button></div></div>
     <div class="switch-row" style="margin-top:8px;"><div>scheduled today</div><div class="sw" id="sw-scheduled"></div></div>
     <div class="field"><label>offline text</label><input type="text" id="offline-text-input"></div>
   </div>
@@ -752,17 +757,84 @@ Space|#8be9fd|pill|20|12</textarea>
       <div class="row"><input type="text" id="canvas-grant-user" placeholder="username"><input type="number" id="canvas-grant-amount" placeholder="amount" style="max-width:100px;"><button id="btn-canvas-grant">grant</button></div>
     </div>
   </div>
+    <div class="pane pane-6">
+    <div class="pane-title">music<span id="music-tag">—</span></div>
+    <div class="kv"><span class="k">now</span><span class="v" id="music-now">—</span></div>
+    <div class="row" style="margin-top:8px;"><button id="btn-music-prev">prev</button><button class="primary" id="btn-music-toggle">play / pause</button><button id="btn-music-next">next</button></div>
+    <div class="field" style="margin-top:10px;"><label>playlist</label>
+      <div class="row"><select id="music-playlist"></select><button id="btn-playlist-load">load</button></div>
+    </div>
+    <div class="switch-row"><div>shuffle</div><div class="sw" id="sw-playlist-shuffle"></div></div>
+    <div class="switch-row"><div>jump to it now</div><div class="sw" id="sw-playlist-skip"></div></div>
+  </div>
 
-  <div class="pane pane-8">
+  <div class="pane pane-6">
+    <div class="pane-title">song requests<span id="req-tag">0 active</span></div>
+    <table class="cmdtable"><thead><tr><th>user</th><th>song</th><th>status</th></tr></thead><tbody id="req-tbody"></tbody></table>
+    <div class="field" style="margin-top:10px;"><label>grant song credits</label>
+      <div class="row"><input type="text" id="song-grant-user" placeholder="username"><input type="number" id="song-grant-amount" placeholder="amount" style="max-width:90px;"><button id="btn-song-grant">grant</button></div></div>
+    <div class="field"><label>channel point reward that gives credits</label>
+      <div class="row"><input type="text" id="song-reward-title" placeholder="reward title (exact)"><input type="number" id="song-reward-amount" value="1" min="1" style="max-width:90px;"><button id="btn-song-reward">save</button></div></div>
+    <div class="hint" id="req-url"></div>
+  </div>
+  <div class="pane pane-6">
     <div class="pane-title">bot commands</div>
     <table class="cmdtable"><thead><tr><th>trigger</th><th>type</th><th>enabled</th><th>response</th><th></th></tr></thead><tbody id="cmd-tbody"></tbody></table>
   </div>
 
-  <div class="pane pane-4">
+  <div class="pane pane-6">
     <div class="pane-title">add / edit command</div>
     <div class="field"><label>trigger</label><input type="text" id="cmd-trigger" placeholder="!demos"></div>
     <div class="field"><label>response</label><input type="text" id="cmd-response" placeholder="this stream: demo reel…"></div>
+    <div class="row">
+      <div class="field"><label for="cmd-permission">permission</label><select id="cmd-permission"><option value="everyone">everyone</option><option value="vip">VIP / subscriber</option><option value="mod">moderator</option><option value="broadcaster">broadcaster</option></select></div>
+      <div class="field"><label for="cmd-cooldown">cooldown (seconds)</label><input type="number" id="cmd-cooldown" min="0" value="0"></div>
+    </div>
+    <div class="field"><label>conditions</label>
+      <div class="row"><input type="text" id="cmd-condition-user" placeholder="only this username (optional)"><input type="number" id="cmd-condition-flags" min="0" placeholder="minimum flags"></div>
+      <div class="row" style="margin-top:6px;"><label class="editor-check"><input type="checkbox" id="cmd-condition-mod">moderator only</label><label class="editor-check"><input type="checkbox" id="cmd-condition-sub">subscriber / VIP only</label></div>
+    </div>
+    <label class="editor-check"><input type="checkbox" id="cmd-enabled" checked>enabled</label>
+    <div class="hint">Response placeholders: {user}, {arg}, {count}, {cpu}, {mem}, {gpu}, {uptime}, {wpm}, and {random:one|two}.</div>
     <div class="row"><button class="primary" id="btn-cmd-save">save</button><button id="btn-cmd-delete">delete</button><button id="btn-cmd-clear">clear</button></div>
+  </div>
+
+  <div class="pane pane-6">
+    <div class="pane-title">channel point redeems</div>
+    <table class="cmdtable"><thead><tr><th>reward</th><th>action</th><th>enabled</th><th>message</th><th></th></tr></thead><tbody id="redeem-tbody"></tbody></table>
+  </div>
+
+  <div class="pane pane-6">
+    <div class="pane-title">add / edit redeem</div>
+    <div class="field"><label for="redeem-title">reward title (exact)</label><input type="text" id="redeem-title" placeholder="reward title"></div>
+    <div class="field"><label for="redeem-action">action</label><select id="redeem-action">
+      <option value="message">chat message</option>
+      <option value="song_credit">song request credits</option>
+      <option value="first_in_chat">first chatter title suffix</option>
+      <option value="check_in">check-in counter</option>
+      <option value="write_file">write user input to file</option>
+      <option value="tts">text to speech</option>
+      <option value="snooze_ad">snooze next ad</option>
+      <option value="flag_gamble">flag gamble</option>
+      <option value="flag_jackpot">flag jackpot</option>
+      <option value="canvas_credit_small">small canvas credit</option>
+      <option value="canvas_credit_large">large canvas credit</option>
+      <option value="play_media">play media</option>
+    </select></div>
+    <div class="field"><label for="redeem-message">chat / alert message</label><input type="text" id="redeem-message" placeholder="{user} redeemed this!"></div>
+    <div class="hint">Message placeholders: {user}, {arg}, {count}, {amount}, {total}.</div>
+    <div class="field" id="redeem-amount-row" style="display:none;"><label for="redeem-amount">song credits per redemption</label><input type="number" id="redeem-amount" min="1" value="1"></div>
+    <div class="field" id="redeem-voice-row" style="display:none;"><label for="redeem-voice">TTS voice</label><select id="redeem-voice"><option value="">default voice</option></select></div>
+    <div class="field" id="redeem-media-row" style="display:none;">
+      <label for="redeem-media">media file</label><select id="redeem-media"><option value="">select media file</option></select>
+      <label for="redeem-audio" style="margin-top:8px;">optional audio file</label><select id="redeem-audio"><option value="">no separate audio</option></select>
+    </div>
+    <div class="field"><label>conditions</label>
+      <div class="row"><input type="text" id="redeem-condition-user" placeholder="only this username (optional)"><input type="number" id="redeem-condition-flags" min="0" placeholder="minimum flags"></div>
+      <div class="row" style="margin-top:6px;"><label class="editor-check"><input type="checkbox" id="redeem-condition-mod">moderator only</label><label class="editor-check"><input type="checkbox" id="redeem-condition-sub">subscriber / VIP only</label></div>
+    </div>
+    <label class="editor-check"><input type="checkbox" id="redeem-enabled" checked>enabled</label>
+    <div class="row"><button class="primary" id="btn-redeem-save">save</button><button id="btn-redeem-delete">delete</button><button id="btn-redeem-test">test</button><button id="btn-redeem-clear">clear</button></div>
   </div>
 
 </div>
@@ -781,6 +853,7 @@ Space|#8be9fd|pill|20|12</textarea>
 <script src="/ui-tabs.js"></script>
 <script src="/editor-extras.js"></script>
 <script src="/keypanel-editor.js"></script>
+<script src="/music-editor.js"></script>
 
 </body>
 </html>

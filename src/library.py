@@ -102,7 +102,7 @@ def _find_real_video(title: str, artist: str) -> str | None:
 def _download_video(video_id: str, uri: str) -> bool:
     import yt_dlp
     opts = {
-        # the overlay plays it muted (audio comes from MPD), so video-only is enough
+        # the overlay plays it muted; the desktop player provides the audio
         "format": "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]/best[height<=720]",
         "outtmpl": _base(uri) + ".%(ext)s",
         "quiet": True,

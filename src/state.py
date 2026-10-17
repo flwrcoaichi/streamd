@@ -136,6 +136,7 @@ class StreamState:
                 ],
                 "active_keys": [],
             },
+            "requests": [],
             "canvas": {
                 "size": CANVAS_SIZE,
                 "visible": False,
@@ -183,6 +184,8 @@ class StreamState:
 
         
         self.canvas_lock = threading.Lock()
+        self.song_lock = threading.Lock()
+        self.song_credits: dict = {}
         self.canvas_credits: dict = {}  
         self.canvas_public_sessions: dict[str, dict] = {}
 

@@ -72,7 +72,7 @@ const UITabs = (() => {
   ];
   const RULES = [
     ['ed-social-lines-row', 'panel'], ['ed-wos-url-row', 'panel'], ['ed-key-panel-row', 'panel'],
-    ['ed-canvas-size-row', 'panel'], ['ed-notepad-row', 'panel'], ['ed-latest-row', 'panel'],
+    ['ed-canvas-size-row', 'panel'], ['ed-notepad-row', 'panel'], ['ed-latest-row', 'panel'], ['ed-music-row', 'panel'],    
     ['ed-spacer-kind-row', 'spacer'], ['ed-spacer-color-row', 'spacer'], ['ed-wireframe-shape-row', 'spacer'],
     ['ed-scroller-style-row', 'spacer'], ['ed-scroller-state-row', 'spacer'], ['ed-scroller-messages-row', 'spacer'],
     ['ed-spacer-pixel-row', 'spacer'], ['ed-border-mode', 'border'], ['ed-title-color-on', 'color'],
@@ -132,6 +132,7 @@ const UITabs = (() => {
       { id: 'obs', icon: '▶', label: 'obs', titles: ['obs scenes', 'obs audio'] },
       { id: 'extras', icon: '✦', label: 'extras', titles: ['words on stream', 'canvas'] },
       { id: 'cmds', icon: '!', label: 'cmds', titles: ['bot commands', 'add / edit command'] },
+      { id: 'music', icon: '♫', label: 'music', titles: ['music', 'song requests'] },
     ];
     Array.from(grid.children).forEach(p => {
       const tl = p.querySelector('.pane-title');

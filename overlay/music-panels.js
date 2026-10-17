@@ -37,6 +37,7 @@
   const LY_DEFAULTS = {
     ly_align: 'left', ly_scale: 108, ly_blur: 3, ly_dim: 45, ly_scroll_ms: 500, ly_offset: 0,
     ly_active_color: '#ffb238', ly_sweep: true, ly_glow: false,
+    ly_lift: 3, ly_art_bg: false, ly_art_blur: 18, ly_art_dim: 35,
   };
 
   const st = document.createElement('style');
@@ -66,7 +67,12 @@
 .ly-w{position:relative;display:inline-block}
 .ly-w::after{content:attr(data-t);position:absolute;left:0;top:0;width:var(--p,0%);overflow:hidden;white-space:nowrap;
   color:var(--ly-active);text-shadow:var(--ly-glow,none)}
-.ly-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}`;
+.ly-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:none}
+.ly-art{position:absolute;inset:-24px;background-size:cover;background-position:center;display:none;
+  filter:blur(var(--ly-art-blur,18px)) brightness(var(--ly-art-dim,.35));animation:lydrift 24s ease-in-out infinite alternate}
+@keyframes lydrift{from{transform:scale(1.1)}to{transform:scale(1.28) translate(2%,-2%)}}
+.ly-w{transition:transform .25s}
+.ly-w.sung{transform:translateY(calc(var(--ly-lift,0) * -1px))}`;
   document.head.appendChild(st);
 
   // ── now playing ───────────────────────────────────────────────────────
@@ -267,6 +273,10 @@
     s.setProperty('--ly-align', o.ly_align);
     s.setProperty('--ly-origin', o.ly_align);
     s.setProperty('--ly-glow', o.ly_glow ? `0 0 6px ${c}, 0 0 16px ${c}` : 'none');
+    s.setProperty('--ly-lift', clamp(Number(o.ly_lift), 0, 10));
+    s.setProperty('--ly-art-blur', clamp(Number(o.ly_art_blur), 0, 40) + 'px');
+    s.setProperty('--ly-art-dim', clamp(Number(o.ly_art_dim), 0, 100) / 100);
+    if (h.art) h.art.style.display = o.ly_art_bg ? 'block' : 'none';
     if (h.builtSweep !== null && h.builtSweep !== !!o.ly_sweep) lyBuild(h);
     h.dirty = true;
   }
@@ -278,7 +288,7 @@
   }
   function lySetActive(h, idx) {
     const prev = h.els[h.activeIdx];
-    if (prev && prev._ws) { prev._ws.forEach(w => w.style.setProperty('--p', '0%')); prev._p = []; }
+    if (prev && prev._ws) { prev._ws.forEach(w => { w.style.setProperty('--p', '0%'); w.classList.remove('sung'); }); prev._p = []; }
     h.activeIdx = idx;
     h.dirty = false;
     h.els.forEach((el, i) => {
@@ -292,7 +302,7 @@
     if (!ln || !ln.words || !el || !el._ws) return;
     ln.words.forEach((w, i) => {
       const v = Math.round(clamp((t - w.time) / Math.max(0.05, w.end - w.time), 0, 1) * 100);
-      if (el._p[i] !== v) { el._p[i] = v; el._ws[i].style.setProperty('--p', v + '%'); }
+      if (el._p[i] !== v) { el._p[i] = v;  el._ws[i].classList.toggle('sung', v > 0); el._ws[i].style.setProperty('--p', v + '%'); }
     });
   }
   function lyFrame(h) {
@@ -329,12 +339,15 @@
       video.muted = true;
       video.playsInline = true;
       body.append(viewport, video);
-      const h = {
-        body, win, viewport, track, video, o: {}, lines: [], els: [], activeIdx: -2, dirty: true, vh: 0,
+      const art = $c('div', 'ly-art');
+      body.append(art, viewport, video);
+      const h = { body, win, art, viewport, track, video, lastKey: '', 
+        o: {}, lines: [], els: [], activeIdx: -2, dirty: true, vh: 0,
         builtSweep: null, builtDur: 0, synthetic: false, hasData: false, raf: null,
         data: { synced_lines: [], synced_words: [], plain_lines: [] },
         musicState: { playing: false, duration: 0, position: 0, _updatedAt: 0 },
       };
+      
       lyApply(h, win);
       lyBuild(h);
       lyFrame(h);
@@ -342,6 +355,11 @@
     },
     onState(h, key, msg) {
       if (key === 'music') {
+        const k = `${msg.title}::${msg.artist}`;
+        if (k !== h.lastKey) {
+          h.lastKey = k;
+          setTimeout(() => { h.art.style.backgroundImage = `url('/art.png?t=${Date.now()}')`; }, 1200);
+        }
         h.musicState = {
           playing: msg.playing, duration: Number(msg.duration) || 0,
           position: Number(msg.position) || 0, _updatedAt: performance.now(),

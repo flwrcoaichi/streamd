@@ -7,8 +7,8 @@ from config import log, REWARDS_PATH, CHECKINS_PATH, REDEEMS_DIR, MEDIA_DIR
 from state import state
 from broadcast import broadcast_sync, send_chat
 from conditions import check_conditions
-from mpd_bridge import media_control, request_song
-    
+from player_bridge import media_control
+from song_requests import add_song_credits
 _DEFAULT_REWARDS = {
 }
 
@@ -94,7 +94,6 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     from tts import tts_say
     from twitch_api import resolve_twitch_user_id, snooze_next_ad, apply_first_chatter_title_suffix
     from flags import add_flags, roll_flag_gamble, roll_flag_jackpot
-    from ytmusic_bridge import request_song
     from canvas import add_credits
 
     rewards = state.data.get("rewards", {})
@@ -118,19 +117,13 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     action = cfg.get("action", "message")
     template = cfg.get("message", "")
     
-    if action == "song_request":
-        query = (user_input or "").strip()
-        if not query:
-            return
-        ok, result_message = request_song(query, user)
-        message = (template or result_message).replace("{user}", user).replace("{arg}", user_input)
-        broadcast_sync({"type": "redeem_alert", "reward": key, "user": user, "message": message})
-        send_chat(message)
-        _log_redeem(key, user, message)
-        return
-
     count = None
-    if action == "first_in_chat":
+    amount = total = None
+    if action == "song_credit":
+        amount = max(1, int(cfg.get("amount", 1) or 1))
+        total = add_song_credits(user, amount)
+        template = template or "{user} got {amount} song request credit(s), {total} total"
+    elif action == "first_in_chat":
         is_first = _mark_first_chatter(user)
         if not is_first:
             return
@@ -192,7 +185,9 @@ def handle_redemption(reward_title: str, user: str, user_input: str = "", badges
     message = (template
                .replace("{user}", user)
                .replace("{arg}", user_input)
-               .replace("{count}", str(count) if count is not None else ""))
+               .replace("{count}", str(count) if count is not None else "")
+               .replace("{amount}", str(amount) if amount is not None else "")
+               .replace("{total}", str(total) if total is not None else ""))
 
     if message:
         broadcast_sync({"type": "redeem_alert", "reward": key, "user": user, "message": message})

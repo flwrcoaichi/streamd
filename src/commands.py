@@ -8,48 +8,30 @@ import xml.etree.ElementTree as ET
 import urllib.parse
 import urllib.request
 
-from config import log, COMMANDS_PATH, CHAN, DEATHS_PATH
+from config import log, COMMANDS_PATH, CHAN, DEATHS_PATH, PLAYER_API_URL
 from state import state
 from broadcast import broadcast_sync, send_chat
 from conditions import check_conditions
 from obs import trigger_words_toggle
+from pathlib import Path   # top
+
+def _store_lyric_sidecars(uri, result, ttml_text) -> None:
+    """save fetched lyrics next to the song so you can edit/replace them."""
+    from library import _base
+    base = _base(uri)
+    try:
+        lrc = Path(base + ".lrc")
+        if result["synced_lines"] and not lrc.exists():
+            lrc.write_text("\n".join(
+                f"[{int(l['time'] // 60):02d}:{l['time'] % 60:05.2f}]{l['text']}"
+                for l in result["synced_lines"]), encoding="utf-8")
+        ttml = Path(base + ".ttml")
+        if ttml_text and not ttml.exists():
+            ttml.write_text(ttml_text, encoding="utf-8")
+    except OSError as e:
+        log.warning("[lyrics] could not store sidecars: %s", e)
 
 _DEFAULT_COMMANDS = {
-    "!throw": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "throw an item at the streamer",
-    },
-    "!shake": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "shake the camera",
-    },
-    "!lightsoff": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "toggle lights off for 2 minutes",
-    },
-    "!status": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "show cpu/mem/gpu/wpm/uptime overlay",
-    },
-    "!lyrics": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "show lyrics for the currently playing song in the status corner",
-    },
-    "!panel": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "switch the status corner's default panel (socials/status)",
-    },
-    "!flags": {
-        "type": "builtin",
-        "enabled": True,
-        "description": "show how many flags you have",
-    },
     "!death": {
         "type": "builtin",
         "enabled": True,
@@ -420,6 +402,7 @@ def _fetch_lyrics_full(artist, title, duration=None, uri=None) -> dict:
         if ttml_text:
             words = _parse_ttml_words(ttml_text)
             if words:
+                payload["_ttml"] = ttml_text
                 payload["synced_words"] = words
                 payload["found"] = True
                 log.info("[lyrics] got word-synced lyrics from lrcmux for %s - %s", artist, title)
@@ -486,11 +469,23 @@ def fetch_and_broadcast_lyrics(artist: str, title: str, user: str | None = None,
     duration = music.get("duration") or None
 
     def _worker() -> None:
-        result = _fetch_lyrics_full(artist, title, duration)
+        result = _fetch_lyrics_full(artist, title, duration, uri)
+        ttml_text = result.pop("_ttml", "")
+        if uri:
+            _store_lyric_sidecars(uri, result, ttml_text)
         payload = {"type": "lyrics", **result}
-        if user is not None:
-            payload["user"] = user
         broadcast_sync(payload)
+        try:
+            request = urllib.request.Request(
+                f"{PLAYER_API_URL}/api/v1/lyrics",
+                data=json.dumps(result).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=2):
+                pass
+        except (OSError, urllib.error.URLError) as error:
+            log.debug("[lyrics] standalone player API unavailable: %s", error)
 
     threading.Thread(target=_worker, daemon=True, name="lyrics-fetch").start()
 

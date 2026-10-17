@@ -17,11 +17,15 @@ from config import (
     log, BASE_DIR, OVERLAY_DIR, OVERLAY_SEARCH_DIRS, PNGTUBER_DIR, PNGTUBER_STATES,
     MEDIA_DIR, MEDIA_EXTS, MV_CACHE_DIR, HTTP_PORT, LAYOUTS_DIR,
     TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET,
-    CANVAS_PUBLIC_PORT, CANVAS_PUBLIC_BASE_URL, CANVAS_PUBLIC_COOKIE, MUSIC_DIR,
+    CANVAS_PUBLIC_PORT, CANVAS_PUBLIC_BASE_URL, CANVAS_PUBLIC_COOKIE,
+    CANVAS_PUBLIC_COOKIE_DOMAIN, REQUESTS_PUBLIC_PORT, MUSIC_DIR,
+    REQUESTS_PUBLIC_BASE_URL,
     CANVAS_PUBLIC_REDIRECT_URI, CANVAS_PUBLIC_TWITCH_SCOPE,
 )
 from canvas import place_public_pixel, get_credits, is_unlimited
 from state import state
+from song_requests import search_youtube, submit_request, get_song_credits
+
 
 def _resolve_overlay_file(filename: str) -> pathlib.Path | None:
     """searches OVERLAY_SEARCH_DIRS in priority order (repo-local `./overlay`
@@ -171,6 +175,11 @@ class CanvasPublicLoginHandler(tornado.web.RequestHandler):
             "&response_type=code"
             f"&scope={urllib.parse.quote(CANVAS_PUBLIC_TWITCH_SCOPE)}"
         )
+        nxt = self.get_argument("next", "")
+        if nxt in ("canvas", "requests"):
+            self.set_cookie("streamd_login_next", nxt, httponly=True, samesite="Lax", max_age=600)
+        else:
+            self.clear_cookie("streamd_login_next")
         self.redirect(auth_url)
 
 
@@ -226,8 +235,17 @@ class CanvasPublicCallbackHandler(tornado.web.RequestHandler):
             "access_token": access_token,
             "created_at": time.time(),
         }
-        self.set_cookie(CANVAS_PUBLIC_COOKIE, session_id, httponly=True, samesite="Lax", max_age=30 * 24 * 60 * 60)
-        self.redirect(f"{CANVAS_PUBLIC_BASE_URL}/?logged_in=1")
+        self.set_cookie(
+            CANVAS_PUBLIC_COOKIE, session_id, httponly=True, samesite="Lax",
+            max_age=30 * 24 * 60 * 60,
+            domain=CANVAS_PUBLIC_COOKIE_DOMAIN or None,
+        )
+        next_page = self.get_cookie("streamd_login_next")
+        self.clear_cookie("streamd_login_next")
+        if next_page == "requests":
+            self.redirect(f"{REQUESTS_PUBLIC_BASE_URL.rstrip('/')}/?logged_in=1")
+        else:
+            self.redirect(f"{CANVAS_PUBLIC_BASE_URL.rstrip('/')}/?logged_in=1")
 
 
 class CanvasPublicSessionHandler(tornado.web.RequestHandler):
@@ -301,9 +319,20 @@ class CanvasPublicPlaceHandler(tornado.web.RequestHandler):
 class CanvasPublicLogoutHandler(tornado.web.RequestHandler):
     def post(self) -> None:
         state.canvas_public_sessions.pop(self.get_cookie(CANVAS_PUBLIC_COOKIE), None)
-        self.clear_cookie(CANVAS_PUBLIC_COOKIE)
+        self.clear_cookie(CANVAS_PUBLIC_COOKIE, domain=CANVAS_PUBLIC_COOKIE_DOMAIN or None)
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"ok": True}))
+
+
+class RequestsLoginHandler(tornado.web.RequestHandler):
+    def get(self) -> None:
+        self.redirect(f"{CANVAS_PUBLIC_BASE_URL.rstrip('/')}/canvas/login?next=requests")
+
+
+class RequestsUrlHandler(tornado.web.RequestHandler):
+    def get(self) -> None:
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"url": REQUESTS_PUBLIC_BASE_URL.rstrip("/") + "/"}))
 
 
 class LayoutsListHandler(tornado.web.RequestHandler):
@@ -490,6 +519,70 @@ class PngtuberUploadHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps({"ok": True, "saved": saved}))
 
+_last_search: dict[str, float] = {}
+
+
+def _viewer(handler):
+    return state.canvas_public_sessions.get(handler.get_cookie(CANVAS_PUBLIC_COOKIE) or "")
+
+
+def _json(handler, data, status=200):
+    handler.set_status(status)
+    handler.set_header("Content-Type", "application/json")
+    handler.write(json.dumps(data))
+
+
+class RequestsSessionHandler(tornado.web.RequestHandler):
+    def get(self) -> None:
+        s = _viewer(self)
+        if not s:
+            return _json(self, {"logged_in": False, "error": "not logged in"}, 401)
+        name = s["username"]
+        _json(self, {"logged_in": True, "username": name,
+                     "credits": get_song_credits(name), "unlimited": is_unlimited(name)})
+
+
+class RequestsSearchHandler(tornado.web.RequestHandler):
+    async def get(self) -> None:
+        s = _viewer(self)
+        if not s:
+            return _json(self, {"error": "please sign in with Twitch"}, 401)
+        q = self.get_argument("q", "").strip()
+        if len(q) < 2:
+            return _json(self, {"error": "type at least 2 characters"}, 400)
+        now = time.time()
+        if now - _last_search.get(s["username"], 0) < 2:
+            return _json(self, {"error": "slow down a little"}, 429)
+        _last_search[s["username"]] = now
+        try:
+            results = await tornado.ioloop.IOLoop.current().run_in_executor(None, search_youtube, q)
+        except Exception as e:
+            log.warning("[requests] search failed: %s", e)
+            return _json(self, {"error": str(e)}, 502)
+        _json(self, {"results": results})
+
+
+class RequestsSubmitHandler(tornado.web.RequestHandler):
+    def post(self) -> None:
+        s = _viewer(self)
+        if not s:
+            return _json(self, {"error": "please sign in with Twitch"}, 401)
+        try:
+            body = json.loads(self.request.body.decode("utf-8") or "{}")
+        except Exception:
+            return _json(self, {"error": "bad json"}, 400)
+        ok, msg = submit_request(s["username"], str(body.get("query") or ""))
+        _json(self, {"ok": True, "message": msg} if ok else {"error": msg}, 200 if ok else 400)
+
+
+class RequestsQueueHandler(tornado.web.RequestHandler):
+    def get(self) -> None:
+        music = state.data.get("music", {})
+        _json(self, {
+            "now": {"title": music.get("title", ""), "artist": music.get("artist", "")},
+            "requests": [{"user": r["user"], "title": r["title"], "status": r["status"], "error": r["error"]}
+                         for r in state.data.get("requests", [])],
+        })
 
 def start_http_server() -> None:
     app = tornado.web.Application([
@@ -511,6 +604,7 @@ def start_http_server() -> None:
         (r"/tts-voices", TTSVoicesHandler),
         (r"/wos-login", OverlayHandler, {"filename": "wos-login.html"}),
         (r"/state", CommandsHandler),
+        (r"/requests-url", RequestsUrlHandler),
         (r"/layouts-list", LayoutsListHandler),
         (r"/layout-save", LayoutSaveHandler),
         (r"/layout-load", LayoutLoadHandler),
@@ -522,7 +616,7 @@ def start_http_server() -> None:
     ])
     app.listen(HTTP_PORT)
 
-    public_app = tornado.web.Application([
+    canvas_app = tornado.web.Application([
         (r"/canvas/login", CanvasPublicLoginHandler),
         (r"/canvas/callback", CanvasPublicCallbackHandler),
         (r"/canvas/session", CanvasPublicSessionHandler),
@@ -532,10 +626,23 @@ def start_http_server() -> None:
         (r"/canvas/?", OverlayHandler, {"filename": "canvas-public.html"}),
         (r"/", OverlayHandler, {"filename": "canvas-public.html"}),
     ])
-    public_app.listen(CANVAS_PUBLIC_PORT)
+    canvas_app.listen(CANVAS_PUBLIC_PORT)
+
+    requests_app = tornado.web.Application([
+        (r"/requests/session", RequestsSessionHandler),
+        (r"/requests/search", RequestsSearchHandler),
+        (r"/requests/submit", RequestsSubmitHandler),
+        (r"/requests/queue", RequestsQueueHandler),
+        (r"/requests/?", OverlayHandler, {"filename": "requests.html"}),
+        (r"/", OverlayHandler, {"filename": "requests.html"}),
+        (r"/login", RequestsLoginHandler),
+        (r"/logout", CanvasPublicLogoutHandler),
+    ])
+    requests_app.listen(REQUESTS_PUBLIC_PORT)
 
     log.info("http overlays at http://localhost:%d/{overlay,chat,music,scene,pngtuber}", HTTP_PORT)
     log.info("http control panel at http://localhost:%d/  (or /control, /stream)", HTTP_PORT)
-    log.info("public canvas at http://localhost:%d/  (Twitch auth + pixel place page)", CANVAS_PUBLIC_PORT)
+    log.info("public canvas at %s  (Twitch auth + pixel place page)", CANVAS_PUBLIC_BASE_URL)
+    log.info("public song requests at %s", REQUESTS_PUBLIC_BASE_URL)
     log.info("overlay files searched in order: %s", [str(d) for d in OVERLAY_SEARCH_DIRS])
     tornado.ioloop.IOLoop.current().start()

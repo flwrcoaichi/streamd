@@ -123,12 +123,7 @@ TTS_DEVICE = os.environ.get("TTS_DEVICE", "cpu")
 TTS_OUTPUT_DEVICE = os.environ.get("TTS_OUTPUT_DEVICE", "18").strip()
 TTS_ENGINE_DEFAULT = os.environ.get("TTS_ENGINE", "chatterbox").strip().lower()
 MUSIC_DIR = pathlib.Path(os.environ.get("MUSIC_DIR", str(pathlib.Path.home() / "Music")))
-MPD_HOST = os.environ.get("MPD_HOST", "127.0.0.1")
-MPD_PORT = int(os.environ.get("MPD_PORT", "6600"))
-MPD_PASSWORD = os.environ.get("MPD_PASSWORD", "")
-MPD_PATH = os.environ.get("MPD_PATH", "")   # set only if streamd should spawn mpd
-MPD_CONF = os.environ.get("MPD_CONF", "")
-MPD_AUTOFILL = str(os.environ.get("MPD_AUTOFILL", "False")).strip().lower() in ("true", "1", "yes", "t")
+PLAYER_API_URL = os.environ.get("PLAYER_API_URL", "http://127.0.0.1:8765").rstrip("/")
 TTS_ONNX_MODEL_DIR = os.environ.get("TTS_ONNX_MODEL_DIR", r"")
 TTS_ONNX_DTYPE = os.environ.get("TTS_ONNX_DTYPE", "q4f16")
 TTS_ONNX_PROVIDER = os.environ.get("TTS_ONNX_PROVIDER", "cpu")
@@ -138,6 +133,9 @@ TTS_KOKORO_MODEL_PATH = os.environ.get(
 TTS_KOKORO_VOICES_PATH = os.environ.get(
     "TTS_KOKORO_VOICES_PATH", str(BASE_DIR / "models" / "voices-v1.0.bin")
 )
+YOUTUBE_API_KEY = os.environ.get("YOUTUBE_API_KEY", "")
+SONG_MAX_SECONDS = int(os.environ.get("SONG_MAX_SECONDS", "600"))   # 0 = no limit
+SONG_MAX_PENDING = int(os.environ.get("SONG_MAX_PENDING", "2"))     # per user
 TTS_KOKORO_VOICE = os.environ.get("TTS_KOKORO_VOICE", "af_heart")
 TTS_KOKORO_LANGUAGE = os.environ.get("TTS_KOKORO_LANGUAGE", "en-us")
 TTS_FISH_ENDPOINT = os.environ.get("TTS_FISH_ENDPOINT", "http://127.0.0.1:3030/generate")
@@ -186,7 +184,10 @@ WOS_URL = os.environ.get("WOS_URL", "https://wos.gg/")
 CANVAS_SIZE = int(os.environ.get("CANVAS_SIZE", "20"))
 CANVAS_PUBLIC_PORT = int(os.environ.get("CANVAS_PUBLIC_PORT", "1760"))
 CANVAS_PUBLIC_BASE_URL = os.environ.get("CANVAS_PUBLIC_BASE_URL", f"http://localhost:{CANVAS_PUBLIC_PORT}")
+REQUESTS_PUBLIC_PORT = int(os.environ.get("REQUESTS_PUBLIC_PORT", "1761"))
+REQUESTS_PUBLIC_BASE_URL = os.environ.get("REQUESTS_PUBLIC_BASE_URL", f"http://localhost:{REQUESTS_PUBLIC_PORT}")
 CANVAS_PUBLIC_COOKIE = "streamd_canvas_session"
+CANVAS_PUBLIC_COOKIE_DOMAIN = os.environ.get("CANVAS_PUBLIC_COOKIE_DOMAIN", "")
 CANVAS_PUBLIC_REDIRECT_PATH = "/canvas/callback"
 CANVAS_PUBLIC_REDIRECT_URI = os.environ.get("CANVAS_PUBLIC_REDIRECT_URI", CANVAS_PUBLIC_BASE_URL.rstrip("/") + CANVAS_PUBLIC_REDIRECT_PATH)
 CANVAS_PUBLIC_TWITCH_SCOPE = "user:read:email"

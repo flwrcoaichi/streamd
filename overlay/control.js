@@ -2,6 +2,9 @@ const WS_URL = `ws://${location.hostname}:8877`;
 let ws = null;
 let state = {};
 let ttsReferenceSaveTimer = null;
+let editingCommandTrigger = '';
+let editingCommandData = {};
+let editingRedeemTitle = '';
 const $ = id => document.getElementById(id);
 
 function toast(msg) {
@@ -1181,6 +1184,7 @@ function handleMessage(msg) {
       renderOverlaySelect();
       renderAll();
       fitStage();
+      send({ cmd: 'playlist_list' });
       break;
     case 'wm_layout': {
       const nm = msg.name || 'main';
@@ -1221,6 +1225,9 @@ function handleMessage(msg) {
       break;
     case 'schedule': state.schedule = msg.schedule; renderSchedule(); break;
     case 'twitch_stats': state.twitch = msg.twitch; renderTwitch(); break;
+    case 'twitch_update_result':
+      toast(msg.ok ? `${msg.field} updated` : `failed to update ${msg.field}`);
+      break;
     case 'obs_state': state.obs = msg.obs; renderObs(); break;
     case 'chat':
       state.chat = state.chat || [];
@@ -1229,6 +1236,7 @@ function handleMessage(msg) {
       renderChat();
       break;
     case 'commands_updated': state.commands = msg.commands; renderCommands(); break;
+    case 'rewards_updated': state.rewards = msg.rewards; renderRedeems(); break;
     case 'pngtuber': state.pngtuber = msg.pngtuber; renderMood(); break;
     case 'redeem_alert': toast(`redeem: ${msg.user} → ${msg.reward}`); break;
     case 'alert': toast(`${msg.alert}: ${msg.message}${msg.sub ? ' (' + msg.sub + ')' : ''}`); break;
@@ -1241,6 +1249,13 @@ function handleMessage(msg) {
     case 'canvas_pixel': broadcastToAllPanels('canvas_pixel', msg); break;
     case 'canvas_place_result': if (!msg.ok) toast(msg.message); break;
     case 'canvas_grant_result': toast(`${msg.user} now has ${msg.credits} credit(s)`); break;
+    case 'music': state.music = msg; renderMusic(); broadcastToAllPanels('music', msg); break;
+    case 'music_video': broadcastToAllPanels('music_video', msg); break;
+    case 'lyrics': broadcastToAllPanels('lyrics', msg); break;
+    case 'requests_state': state.requests = msg.requests; renderRequests(); break;
+    case 'playlists': state.playlists = msg.names; renderPlaylists(); break;
+    case 'playlist': state.playlist = msg.name; renderPlaylists(); break;
+    case 'song_grant_result': toast(`${msg.user} now has ${msg.credits} song credit(s)`); break;
   }
 }
 
@@ -1257,8 +1272,9 @@ function broadcastToAllPanels(key, msg) {
 
 function renderAll() {
   renderStatus(); renderStats(); renderTts(); renderSchedule();
-  renderTwitch(); renderObs(); renderChat(); renderCommands(); renderMood();
-  renderAds(); renderWords(); renderCanvas();
+  renderTwitch(); renderObs(); renderChat(); renderCommands(); renderRedeems(); renderMood();
+  renderAds(); renderWords(); renderCanvas(); renderMusic(); renderRequests(); renderPlaylists();
+  if (state.music) broadcastToAllPanels('music', state.music);
   if (state.key_panel) broadcastToAllPanels('key_panel', state.key_panel);
   if (state.pointer) broadcastToAllPanels('pointer', state.pointer);
   if (state.message !== undefined) broadcastToAllPanels('message', { value: state.message });
@@ -1369,7 +1385,21 @@ function renderTwitch() {
   $('kv-followers').textContent = t.followers ?? '…';
   $('kv-subs').textContent = t.subscribers ?? '…';
   $('kv-viewers').textContent = t.viewers ?? '…';
+  if (document.activeElement !== $('twitch-title-input')) $('twitch-title-input').value = t.title || '';
+  if (document.activeElement !== $('twitch-category-input')) $('twitch-category-input').value = t.game_name || '';
 }
+$('btn-twitch-title').onclick = () => {
+  const value = $('twitch-title-input').value.trim();
+  if (!value) { toast('enter a stream title'); return; }
+  send({ cmd: 'set_title', value });
+};
+$('twitch-title-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-twitch-title').click(); });
+$('btn-twitch-category').onclick = () => {
+  const value = $('twitch-category-input').value.trim();
+  if (!value) { toast('enter a Twitch category'); return; }
+  send({ cmd: 'set_category', value });
+};
+$('twitch-category-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('btn-twitch-category').click(); });
 
 function renderAds() {
   const a = state.ads || {};
@@ -1448,14 +1478,171 @@ function renderCommands() {
   Object.entries(cmds).forEach(([trigger, data]) => {
     const tr = document.createElement('tr');
     const isBuiltin = data.type === 'builtin';
-    tr.innerHTML = `<td class="trig">${trigger}</td><td>${data.type || ''}</td><td>${data.enabled === false ? 'off' : 'on'}</td><td>${escapeHtml(data.response || data.description || '')}</td><td>${isBuiltin ? '' : '<span class="del">✕</span>'}</td>`;
+    [trigger, data.type || '', data.enabled === false ? 'off' : 'on', data.response || data.description || ''].forEach((value, index) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      if (index === 0) td.className = 'trig';
+      tr.appendChild(td);
+    });
+    const actionCell = document.createElement('td');
+    if (!isBuiltin) {
+      const remove = document.createElement('span');
+      remove.className = 'del';
+      remove.textContent = '✕';
+      actionCell.appendChild(remove);
+    }
+    tr.appendChild(actionCell);
     tr.onclick = (e) => {
       if (e.target.classList.contains('del')) { send({ cmd: 'command_delete', trigger }); return; }
       if (isBuiltin) { send({ cmd: 'command_set', trigger, data: { ...data, enabled: !(data.enabled !== false) } }); return; }
-      $('cmd-trigger').value = trigger; $('cmd-response').value = data.response || '';
+      fillCommandEditor(trigger, data);
     };
     tbody.appendChild(tr);
   });
+}
+
+function readConditions(prefix, previous = {}) {
+  const conditions = { ...previous };
+  const username = $(`${prefix}-condition-user`).value.trim();
+  const minFlagsText = $(`${prefix}-condition-flags`).value.trim();
+  const minFlags = minFlagsText ? Number.parseInt(minFlagsText, 10) : 0;
+  if (username) conditions.username = username;
+  else delete conditions.username;
+  if (minFlagsText && Number.isInteger(minFlags) && minFlags > 0) conditions.min_flags = minFlags;
+  else delete conditions.min_flags;
+  if ($(`${prefix}-condition-mod`).checked) conditions.moderator = true;
+  else delete conditions.moderator;
+  if ($(`${prefix}-condition-sub`).checked) conditions.subscriber = true;
+  else delete conditions.subscriber;
+  return conditions;
+}
+
+function fillConditionEditor(prefix, conditions = {}) {
+  $(`${prefix}-condition-user`).value = conditions.username || '';
+  $(`${prefix}-condition-flags`).value = conditions.min_flags || '';
+  $(`${prefix}-condition-mod`).checked = !!conditions.moderator;
+  $(`${prefix}-condition-sub`).checked = !!conditions.subscriber;
+}
+
+function fillCommandEditor(trigger = '', data = {}) {
+  editingCommandTrigger = trigger;
+  editingCommandData = { ...data };
+  $('cmd-trigger').value = trigger;
+  $('cmd-response').value = data.response || '';
+  setEditorSelectValue($('cmd-permission'), ({ subscriber: 'vip', moderator: 'mod' })[data.permission] || data.permission || 'everyone');
+  $('cmd-cooldown').value = data.cooldown || 0;
+  $('cmd-enabled').checked = data.enabled !== false;
+  fillConditionEditor('cmd', data.conditions || {});
+}
+
+function renderRedeems() {
+  const tbody = $('redeem-tbody');
+  tbody.innerHTML = '';
+  Object.entries(state.rewards || {}).forEach(([title, data]) => {
+    const tr = document.createElement('tr');
+    [title, data.action || 'message', data.enabled === false ? 'off' : 'on', data.message || ''].forEach((value, index) => {
+      const td = document.createElement('td');
+      td.textContent = value;
+      if (index === 0) td.className = 'trig';
+      tr.appendChild(td);
+    });
+    const actionCell = document.createElement('td');
+    const remove = document.createElement('span');
+    remove.className = 'del';
+    remove.textContent = '✕';
+    actionCell.appendChild(remove);
+    tr.appendChild(actionCell);
+    tr.onclick = e => {
+      if (e.target.classList.contains('del')) {
+        send({ cmd: 'reward_delete', title });
+        return;
+      }
+      fillRedeemEditor(title, data);
+    };
+    tbody.appendChild(tr);
+  });
+  if (!tbody.children.length) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 5;
+    td.textContent = 'no configured redeems';
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  }
+}
+
+function setEditorSelectValue(select, value, fallbackLabel = value) {
+  if (!value) {
+    select.value = '';
+    return;
+  }
+  if (![...select.options].some(option => option.value === value)) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = `${fallbackLabel} (not currently available)`;
+    select.appendChild(option);
+  }
+  select.value = value;
+}
+
+const knownRedeemActions = ['message', 'song_credit', 'first_in_chat', 'check_in', 'write_file', 'tts', 'snooze_ad', 'flag_gamble', 'flag_jackpot', 'canvas_credit_small', 'canvas_credit_large', 'play_media'];
+
+function updateRedeemActionFields() {
+  const action = $('redeem-action').value;
+  $('redeem-amount-row').style.display = action === 'song_credit' ? '' : 'none';
+  $('redeem-voice-row').style.display = action === 'tts' ? '' : 'none';
+  $('redeem-media-row').style.display = action === 'play_media' ? '' : 'none';
+}
+
+function fillRedeemEditor(title = '', data = {}) {
+  editingRedeemTitle = title;
+  $('redeem-title').value = title;
+  setEditorSelectValue($('redeem-action'), data.action || 'message');
+  $('redeem-message').value = data.message || '';
+  $('redeem-amount').value = data.amount || 1;
+  $('redeem-enabled').checked = data.enabled !== false;
+  fillConditionEditor('redeem', data.conditions || {});
+  setEditorSelectValue($('redeem-voice'), data.voice || '');
+  setEditorSelectValue($('redeem-media'), data.file || '');
+  setEditorSelectValue($('redeem-audio'), data.audio || '');
+  updateRedeemActionFields();
+}
+
+async function loadRedeemEditorOptions() {
+  for (const [url, selectId, emptyLabel, key] of [
+    ['/media-list', 'redeem-media', 'select media file', 'files'],
+    ['/media-list', 'redeem-audio', 'no separate audio', 'files'],
+    ['/tts-voices', 'redeem-voice', 'default voice', 'voices'],
+  ]) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+      const result = await response.json();
+      const select = $(selectId);
+      const selected = select.value;
+      select.innerHTML = '';
+      const empty = document.createElement('option');
+      empty.value = '';
+      empty.textContent = emptyLabel;
+      select.appendChild(empty);
+      (result[key] || []).forEach(value => {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = value;
+        select.appendChild(option);
+      });
+      if (selected) setEditorSelectValue(select, selected);
+    } catch (error) {
+      console.warn(`could not load redeem editor options from ${url}`, error);
+      toast(`could not load ${key} for redeems`);
+    }
+  }
+  if (editingRedeemTitle) {
+    const data = (state.rewards || {})[editingRedeemTitle] || {};
+    setEditorSelectValue($('redeem-voice'), data.voice || '');
+    setEditorSelectValue($('redeem-media'), data.file || '');
+    setEditorSelectValue($('redeem-audio'), data.audio || '');
+  }
 }
 
 const MOODS = ['neutral', 'bored', 'sad', 'cheerful'];
@@ -1540,18 +1727,94 @@ $('btn-cmd-save').onclick = () => {
   const response = $('cmd-response').value.trim();
   if (!trigger) { toast('trigger is required'); return; }
   if (!trigger.startsWith('!')) trigger = '!' + trigger;
-  send({ cmd: 'command_set', trigger, data: { type: 'custom', enabled: true, response } });
+  const cooldownText = $('cmd-cooldown').value.trim();
+  const cooldown = cooldownText ? Number(cooldownText) : 0;
+  if (!Number.isInteger(cooldown) || cooldown < 0) { toast('cooldown must be a non-negative whole number'); return; }
+  const flagsText = $('cmd-condition-flags').value.trim();
+  const flags = flagsText ? Number(flagsText) : 0;
+  if (!Number.isInteger(flags) || flags < 0) { toast('minimum flags must be a non-negative whole number'); return; }
+  const conditions = readConditions('cmd', editingCommandData.conditions || {});
+  const data = {
+    ...editingCommandData,
+    type: 'custom',
+    enabled: $('cmd-enabled').checked,
+    response,
+    permission: $('cmd-permission').value,
+    cooldown,
+  };
+  if (Object.keys(conditions).length) data.conditions = conditions;
+  else delete data.conditions;
+  if (editingCommandTrigger && editingCommandTrigger !== trigger) {
+    send({ cmd: 'command_delete', trigger: editingCommandTrigger });
+  }
+  send({ cmd: 'command_set', trigger, data });
   toast('saved ' + trigger);
-  $('cmd-trigger').value = ''; $('cmd-response').value = '';
+  fillCommandEditor();
 };
 $('btn-cmd-delete').onclick = () => {
   let trigger = $('cmd-trigger').value.trim().toLowerCase();
   if (!trigger) { toast('no trigger entered'); return; }
   if (!trigger.startsWith('!')) trigger = '!' + trigger;
   send({ cmd: 'command_delete', trigger });
-  $('cmd-trigger').value = ''; $('cmd-response').value = '';
+  fillCommandEditor();
 };
-$('btn-cmd-clear').onclick = () => { $('cmd-trigger').value = ''; $('cmd-response').value = ''; };
+$('btn-cmd-clear').onclick = () => fillCommandEditor();
+
+$('redeem-action').addEventListener('change', updateRedeemActionFields);
+$('btn-redeem-save').onclick = () => {
+  const title = $('redeem-title').value.trim();
+  if (!title) { toast('enter the exact reward title'); return; }
+  const action = $('redeem-action').value;
+  const amount = Number($('redeem-amount').value);
+  const flagsText = $('redeem-condition-flags').value.trim();
+  const flags = flagsText ? Number(flagsText) : 0;
+  if (!Number.isInteger(flags) || flags < 0) { toast('minimum flags must be a non-negative whole number'); return; }
+  if (action === 'song_credit' && (!Number.isInteger(amount) || amount < 1)) { toast('song credits must be a whole number of at least 1'); return; }
+  const existing = (state.rewards || {})[editingRedeemTitle] || {};
+  const data = {
+    ...existing,
+    action,
+    enabled: $('redeem-enabled').checked,
+    message: $('redeem-message').value.trim(),
+  };
+  const conditions = readConditions('redeem', existing.conditions || {});
+  if (Object.keys(conditions).length) data.conditions = conditions;
+  else delete data.conditions;
+  if (action === 'song_credit') data.amount = amount;
+  else if (knownRedeemActions.includes(action)) delete data.amount;
+  if (action === 'tts') {
+    if ($('redeem-voice').value) data.voice = $('redeem-voice').value;
+    else delete data.voice;
+  } else if (knownRedeemActions.includes(action)) delete data.voice;
+  if (action === 'play_media') {
+    if (!$('redeem-media').value) { toast('select a media file'); return; }
+    data.file = $('redeem-media').value;
+    if ($('redeem-audio').value) data.audio = $('redeem-audio').value;
+    else delete data.audio;
+  } else if (knownRedeemActions.includes(action)) {
+    delete data.file;
+    delete data.audio;
+  }
+  if (editingRedeemTitle && editingRedeemTitle !== title) {
+    send({ cmd: 'reward_delete', title: editingRedeemTitle });
+  }
+  send({ cmd: 'reward_set', title, data });
+  toast('saved redeem: ' + title);
+  fillRedeemEditor();
+};
+$('btn-redeem-delete').onclick = () => {
+  const title = editingRedeemTitle || $('redeem-title').value.trim();
+  if (!title) { toast('select or enter a reward title'); return; }
+  send({ cmd: 'reward_delete', title });
+  fillRedeemEditor();
+};
+$('btn-redeem-test').onclick = () => {
+  const title = $('redeem-title').value.trim();
+  if (!title) { toast('enter a reward title to test'); return; }
+  send({ cmd: 'test_redeem', title, user: 'test_user', arg: 'test input' });
+};
+$('btn-redeem-clear').onclick = () => fillRedeemEditor();
+loadRedeemEditorOptions();
 
 setInterval(() => { $('clock').textContent = new Date().toLocaleTimeString('en-GB'); }, 1000);
 function refreshSpacerRowsFromDropdown() {
@@ -1675,7 +1938,50 @@ $('ed-notepad-text').addEventListener('input', () => {
   clearTimeout(npTimer);
   npTimer = setTimeout(() => send({ cmd: 'notepad_set', id, value }), 150);
 });
-
+function renderMusic() {
+  const m = state.music || {};
+  $('music-now').textContent = m.title && m.title !== '—' ? `${m.title}${m.artist ? ' — ' + m.artist : ''}` : 'nothing playing';
+  $('music-tag').textContent = m.playing ? 'playing' : 'paused';
+}
+function renderPlaylists() {
+  const sel = $('music-playlist');
+  sel.innerHTML = (state.playlists || []).map(n => `<option>${escapeHtml(n)}</option>`).join('');
+  if (state.playlist) sel.value = state.playlist;
+}
+function renderRequests() {
+  const reqs = (state.requests || []).slice().reverse();
+  $('req-tag').textContent = reqs.filter(r => ['downloading', 'queued', 'playing'].includes(r.status)).length + ' active';
+  $('req-tbody').innerHTML = reqs.map(r =>
+    `<tr><td>${escapeHtml(r.user)}</td><td>${escapeHtml(r.title)}</td><td>${escapeHtml(r.status === 'failed' ? 'failed: ' + r.error : r.status)}</td></tr>`
+  ).join('') || '<tr><td colspan="3">no requests</td></tr>';
+}
+$('btn-music-prev').onclick = () => send({ cmd: 'media_prev' });
+$('btn-music-toggle').onclick = () => send({ cmd: 'media_toggle' });
+$('btn-music-next').onclick = () => send({ cmd: 'media_next' });
+['sw-playlist-shuffle', 'sw-playlist-skip'].forEach(id => $(id).onclick = () => $(id).classList.toggle('on'));
+$('btn-playlist-load').onclick = () => {
+  const name = $('music-playlist').value;
+  if (!name) { toast('no playlists found'); return; }
+  send({ cmd: 'playlist_load', value: name, shuffle: $('sw-playlist-shuffle').classList.contains('on'), skip: $('sw-playlist-skip').classList.contains('on') });
+};
+$('btn-song-grant').onclick = () => {
+  const user = $('song-grant-user').value.trim(), amount = parseInt($('song-grant-amount').value, 10) || 0;
+  if (!user || !amount) { toast('enter a username and amount'); return; }
+  send({ cmd: 'song_grant', user, amount });
+};
+$('btn-song-reward').onclick = () => {
+  const title = $('song-reward-title').value.trim(), amount = parseInt($('song-reward-amount').value, 10) || 1;
+  if (!title) { toast('enter the reward title'); return; }
+  send({ cmd: 'reward_set', title, data: { action: 'song_credit', enabled: true, amount, message: '{user} got {amount} song credit(s), {total} total' } });
+  toast('saved reward: ' + title);
+};
+fetch('/requests-url')
+  .then(response => {
+    if (!response.ok) throw new Error('could not load request page URL');
+    return response.json();
+  })
+  .then(({ url }) => { $('req-url').textContent = 'request page: ' + url; })
+  .catch(error => console.warn(error));
 renderPresets();
 refreshLayoutConfigList();
 connect();

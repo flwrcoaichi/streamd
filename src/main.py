@@ -17,7 +17,7 @@ from discord_rpc import run_discord_rpc_thread
 from tts import run_tts_worker, run_hotkeys
 from chat_irc import run_stats_thread, run_chat_thread, run_wpm_tracker
 from ytmusic_bridge import run_ytmusic_thread, run_companion_pairing_flow
-from mpd_bridge import run_mpd_thread
+from player_bridge import run_player_thread
 from http_server import start_http_server
 from ws_handler import (
     ws_handler, run_global_pointer_listener, run_key_panel_listener,
@@ -25,6 +25,7 @@ from ws_handler import (
 )
 from latest import load_latest
 from canvas import load_canvas
+from song_requests import load_song_credits
 
 state.data["commands"] = load_commands()
 state.data["rewards"] = load_rewards()
@@ -36,7 +37,7 @@ state.data["wm_layout"] = state.data["wm_layouts"].get("main", [])
 state.data["notepads"] = load_notepads()
 state.data["latest"] = load_latest()
 state.data["canvas"]["pixels"] = load_canvas()
-
+load_song_credits()
 
 def run_twitch_token_refresh_thread() -> None:
     while True:
@@ -55,7 +56,7 @@ async def main() -> None:
     log.info("log: %s", LOG_PATH)
     log.info("pngtuber dir: %s (set STREAM_PNGTUBER_DIR to override)", PNGTUBER_DIR)
 
-    for target in (run_stats_thread, run_mpd_thread, run_chat_thread, run_wpm_tracker,
+    for target in (run_stats_thread, run_player_thread, run_chat_thread, run_wpm_tracker,
                    run_key_panel_listener, run_tts_worker, run_hotkeys, run_twitch_stats_thread,
                    run_discord_rpc_thread, run_twitch_token_refresh_thread, run_ad_schedule_thread):
         threading.Thread(target=target, daemon=True, name=target.__name__).start()
